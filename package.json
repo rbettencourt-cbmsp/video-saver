@@ -5,7 +5,9 @@
   "license": "MIT",
   "scripts": {
     "postinstall": "node scripts/vendor.js",
-    "test": "node --test"
+    "test": "node --test",
+    "build:firefox": "node scripts/build-firefox.js",
+    "lint:firefox": "npx --yes web-ext@8 lint --source-dir dist/firefox"
   },
   "devDependencies": {
     "@ffmpeg/core": "0.12.10",

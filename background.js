@@ -4,7 +4,9 @@
 //    button and the downloads tab never race. The downloads tab (downloads.html) runs jobs.
 //  * optional daily update check against a GitHub repo (see UPDATE_REPO)
 
-importScripts("common.js");
+// Chrome runs this as a service worker (importScripts); Firefox as background scripts
+// listed in its manifest, where compat.js and common.js are already loaded.
+if (typeof importScripts === "function") importScripts("compat.js", "common.js");
 
 // Set to "owner/repo" to get a "new version available" notice from GitHub releases.
 const UPDATE_REPO = "rbettencourt-cbmsp/video-saver";
@@ -46,7 +48,8 @@ function addMedia(details, type) {
     const k = key(tabId);
     const { [k]: list = [] } = await chrome.storage.session.get(k);
     if (list.some((m) => m.url === url)) return;
-    const referrer = await frameUrl(tabId, frameId, details.initiator ? details.initiator + "/" : "");
+    // Firefox gives the frame's URL directly; Chrome only the origin, so ask webNavigation.
+    const referrer = details.documentUrl || (await frameUrl(tabId, frameId, details.initiator ? details.initiator + "/" : ""));
     list.push({ url, type, referrer, inFrame: frameId > 0, source: "network", seen: Date.now() });
     const kept = list.slice(-MAX_PER_TAB);
     await chrome.storage.session.set({ [k]: kept });
@@ -62,7 +65,8 @@ function clearTab(tabId) {
 chrome.webRequest.onHeadersReceived.addListener(
   (details) => {
     if (details.tabId < 0) return;
-    if (details.initiator?.startsWith("chrome-extension://")) return; // our own downloads
+    const from = details.initiator || details.originUrl || "";
+    if (/^(chrome|moz)-extension:/.test(from)) return; // our own downloads
     if (details.statusCode >= 400) return;
     const ct = details.responseHeaders?.find((h) => h.name.toLowerCase() === "content-type")?.value || "";
     const type = mediaKind(details.url, ct);
@@ -102,7 +106,8 @@ function mutateJobs(fn) {
 }
 
 async function ensureManager({ focus = false } = {}) {
-  const [tab] = await chrome.tabs.query({ url: MANAGER_URL + "*" });
+  // (Filter by hand: Firefox doesn't accept moz-extension:// URLs as a query pattern.)
+  const tab = (await chrome.tabs.query({})).find((t) => (t.url || "").startsWith(MANAGER_URL));
   if (tab) {
     if (focus) {
       await chrome.tabs.update(tab.id, { active: true });
@@ -172,6 +177,10 @@ const handlers = {
 const YT_HOST = "com.videosaver.ytdlp";
 const YT_QUALITIES = ["best", "1080", "720", "480", "audio"];
 const ytJobs = new Map(); // jobId -> { port, tabId, title }
+// Chrome: "Specified native messaging host not found."; Firefox: "No such native application …".
+const NOT_INSTALLED_RE = /not found|not exist|forbidden|no such native application/i;
+// Chrome reports port errors on runtime.lastError, Firefox on port.error.
+const portError = (p) => p?.error?.message || chrome.runtime.lastError?.message || "";
 
 function ytVideoId(url) {
   try {
@@ -208,9 +217,9 @@ function ytRequest(message, replyType, timeoutMs) {
       if (m.type === replyType && m.reqId === reqId) finish(m);
       else if (m.type === "error") finish({ ok: false, error: m.error });
     });
-    port.onDisconnect.addListener(() => {
-      const e = chrome.runtime.lastError?.message || "";
-      finish({ ok: false, notInstalled: /not found|not exist|forbidden/i.test(e), error: e || "The yt-dlp helper closed." });
+    port.onDisconnect.addListener((p) => {
+      const e = portError(p);
+      finish({ ok: false, notInstalled: NOT_INSTALLED_RE.test(e), error: e || "The yt-dlp helper closed." });
     });
     port.postMessage({ ...message, reqId });
   });
@@ -259,11 +268,11 @@ Object.assign(handlers, {
         end();
       } else if (m.type === "cancelled") end();
     });
-    port.onDisconnect.addListener(() => {
+    port.onDisconnect.addListener((p) => {
       if (!ytJobs.has(jobId)) return;
       ytJobs.delete(jobId);
-      const e = chrome.runtime.lastError?.message || "The yt-dlp helper stopped unexpectedly.";
-      ytForward(tabId, { type: "error", jobId, error: e, notInstalled: /not found|not exist/i.test(e) });
+      const e = portError(p) || "The yt-dlp helper stopped unexpectedly.";
+      ytForward(tabId, { type: "error", jobId, error: e, notInstalled: NOT_INSTALLED_RE.test(e) });
     });
     port.postMessage({
       type: "download", jobId,
@@ -277,6 +286,36 @@ Object.assign(handlers, {
 
   ytCancel: ({ jobId }) => {
     ytJobs.get(jobId)?.port.postMessage({ type: "cancel", jobId });
+  },
+});
+
+// --- Firefox: Referer for our own downloads --------------------------------------
+// Chrome uses declarativeNetRequest session rules (see job.js). Firefox doesn't apply
+// those to an extension's own requests, so here a blocking webRequest listener sets
+// Referer on requests from our pages to the hosts a running job registered.
+const refererRules = new Map(); // jobId -> { hosts: Set, referrer }
+if (globalThis.VS_IS_FIREFOX && chrome.webRequest?.onBeforeSendHeaders) {
+  const ownBase = chrome.runtime.getURL("");
+  chrome.webRequest.onBeforeSendHeaders.addListener(
+    (d) => {
+      if (!refererRules.size || !(d.originUrl || "").startsWith(ownBase)) return;
+      const host = new URL(d.url).hostname;
+      const rule = [...refererRules.values()].find((r) => r.hosts.has(host));
+      if (!rule) return;
+      const headers = d.requestHeaders.filter((h) => h.name.toLowerCase() !== "referer");
+      headers.push({ name: "Referer", value: rule.referrer });
+      return { requestHeaders: headers };
+    },
+    { urls: ["<all_urls>"] },
+    ["blocking", "requestHeaders"]
+  );
+}
+Object.assign(handlers, {
+  setReferer: ({ id, hosts, referrer }) => {
+    refererRules.set(String(id), { hosts: new Set(hosts), referrer: String(referrer) });
+  },
+  clearReferer: ({ id }) => {
+    refererRules.delete(String(id));
   },
 });
 

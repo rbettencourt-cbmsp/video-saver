@@ -113,6 +113,37 @@ function startHost(origin, config) {
   return { child, post, next, stop };
 }
 
+test("host accepts Firefox-style arguments (manifest path, then add-on ID)", { skip: !fs.existsSync(YTDLP) && "yt-dlp.exe not present" }, async () => {
+  const FF_ID = "video-saver@rbettencourt-cbmsp";
+  const cfgPath = path.join(os.tmpdir(), `vs-host-ff-${process.pid}.json`);
+  fs.writeFileSync(cfgPath, JSON.stringify({ ytDlpPath: YTDLP, allowedOrigins: [ORIGIN, FF_ID] }));
+  const child = spawn(process.execPath, [HOST, "C:\\x\\com.videosaver.ytdlp.firefox.json", FF_ID], {
+    env: { ...process.env, VS_HOST_CONFIG: cfgPath },
+  });
+  const reply = await new Promise((resolve, reject) => {
+    let buf = Buffer.alloc(0);
+    child.stdout.on("data", (d) => {
+      buf = Buffer.concat([buf, d]);
+      if (buf.length >= 4 && buf.length >= 4 + buf.readUInt32LE(0)) resolve(JSON.parse(buf.subarray(4, 4 + buf.readUInt32LE(0))));
+    });
+    setTimeout(() => reject(new Error("no reply")), 30000);
+    const body = Buffer.from(JSON.stringify({ type: "ping", reqId: "f" }));
+    const h = Buffer.alloc(4);
+    h.writeUInt32LE(body.length);
+    child.stdin.write(Buffer.concat([h, body]));
+  });
+  child.kill();
+  fs.rmSync(cfgPath, { force: true });
+  assert.equal(reply.type, "pong", reply.error);
+});
+
+test("host rejects a Firefox add-on ID that isn't allowed", async () => {
+  const h = startHost("C:\\x\\manifest.json", { ytDlpPath: YTDLP, allowedOrigins: [ORIGIN] });
+  const m = await h.next(() => true, 10000);
+  assert.match(m.error, /isn't allowed/);
+  h.stop();
+});
+
 test("host rejects extensions that aren't allowed", async () => {
   const h = startHost("chrome-extension://someoneelse/", { ytDlpPath: YTDLP, allowedOrigins: [ORIGIN] });
   const m = await h.next(() => true, 10000);

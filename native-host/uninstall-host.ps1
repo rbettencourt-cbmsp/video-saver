@@ -5,11 +5,11 @@
 #>
 $ErrorActionPreference = "Stop"
 $HostName = "com.videosaver.ytdlp"
-foreach ($browser in @("Google\Chrome", "Microsoft\Edge", "BraveSoftware\Brave-Browser")) {
+foreach ($browser in @("Google\Chrome", "Microsoft\Edge", "BraveSoftware\Brave-Browser", "Mozilla")) {
   $key = "HKCU:\Software\$browser\NativeMessagingHosts\$HostName"
   if (Test-Path $key) { Remove-Item -Path $key -Force }
 }
-foreach ($f in @("$HostName.json", "host.bat", "config.json", "host.log")) {
+foreach ($f in @("$HostName.json", "$HostName.firefox.json", "host.bat", "config.json", "host.log")) {
   $p = Join-Path $PSScriptRoot $f
   if (Test-Path $p) { Remove-Item $p -Force }
 }

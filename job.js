@@ -41,6 +41,11 @@ export async function runJob(job, { signal, report }) {
     return ruleReady;
   }
   async function installRule(hosts) {
+    if (globalThis.VS_IS_FIREFOX) {
+      // Firefox: the background sets the header with webRequest (see background.js).
+      await chrome.runtime.sendMessage({ type: "setReferer", id: job.id, hosts, referrer });
+      return;
+    }
     const id = ruleIdFor(job.id);
     ruleIds.add(id);
     await chrome.declarativeNetRequest.updateSessionRules({
@@ -231,6 +236,9 @@ export async function runJob(job, { signal, report }) {
     say("Saving…", 0.99);
     return await save(await out.file(), `${base}.mp4`);
   } finally {
+    if (globalThis.VS_IS_FIREFOX && hostsWithRule.size) {
+      await chrome.runtime.sendMessage({ type: "clearReferer", id: job.id }).catch(() => {});
+    }
     if (ruleIds.size && chrome.declarativeNetRequest) {
       await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [...ruleIds] }).catch(() => {});
     }
@@ -293,21 +301,23 @@ export function ruleIdFor(jobId) {
 
 const mb = (n) => `${(n / 1048576).toFixed(1)} MB`;
 
-function saveUrl(url, filename) {
+async function saveUrl(url, filename) {
+  // Promise style works in both browsers (Firefox's API has no callbacks).
+  let id;
+  try {
+    id = await chrome.downloads.download({ url, filename, saveAs: false, conflictAction: "uniquify" });
+  } catch (err) {
+    throw new Error(`Download failed: ${err?.message || "unknown error"}`);
+  }
+  if (id == null) throw new Error("Download failed: unknown error");
   return new Promise((resolve, reject) => {
-    chrome.downloads.download({ url, filename, saveAs: false, conflictAction: "uniquify" }, (id) => {
-      if (chrome.runtime.lastError || id == null) {
-        reject(new Error(`Download failed: ${chrome.runtime.lastError?.message || "unknown error"}`));
-        return;
+    const listener = (delta) => {
+      if (delta.id === id && delta.state && delta.state.current !== "in_progress") {
+        chrome.downloads.onChanged.removeListener(listener);
+        if (delta.state.current === "complete") resolve({ downloadId: id, filename });
+        else reject(new Error("Saving was cancelled."));
       }
-      const listener = (delta) => {
-        if (delta.id === id && delta.state && delta.state.current !== "in_progress") {
-          chrome.downloads.onChanged.removeListener(listener);
-          if (delta.state.current === "complete") resolve({ downloadId: id, filename });
-          else reject(new Error("Saving was cancelled."));
-        }
-      };
-      chrome.downloads.onChanged.addListener(listener);
-    });
+    };
+    chrome.downloads.onChanged.addListener(listener);
   });
 }

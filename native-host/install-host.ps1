@@ -7,7 +7,9 @@
   * Writes native-host\host.bat, which starts host.js with your Node.js
   * Writes the host manifest native-host\com.videosaver.ytdlp.json, allowing only this
     extension's ID (computed from the "key" in manifest.json)
-  * Points HKCU\Software\<Chrome|Edge>\NativeMessagingHosts\com.videosaver.ytdlp at it
+  * Writes a second manifest for Firefox (com.videosaver.ytdlp.firefox.json), allowing only
+    the Firefox add-on ID
+  * Points HKCU\Software\<Chrome|Edge|Brave|Mozilla>\NativeMessagingHosts\com.videosaver.ytdlp at them
   No admin rights are needed; nothing outside your user profile and this folder changes.
 
 .EXAMPLE
@@ -32,6 +34,7 @@ $hash = [System.Security.Cryptography.SHA256]::Create().ComputeHash($der)
 $hex = -join ($hash[0..15] | ForEach-Object { $_.ToString("x2") })
 $ExtId = -join ($hex.ToCharArray() | ForEach-Object { [char](97 + [Convert]::ToInt32([string]$_, 16)) })
 $Origin = "chrome-extension://$ExtId/"
+$FirefoxId = "video-saver@rbettencourt-cbmsp"   # browser_specific_settings.gecko.id in the Firefox build
 
 # Windows PowerShell's "UTF8" adds a byte-order mark; write plain UTF-8 instead.
 function Write-Utf8NoBom([string]$Path, [string]$Text) {
@@ -57,7 +60,7 @@ $config = [ordered]@{
   ytDlpPath      = $YtDlpPath
   ffmpegPath     = $FfmpegPath
   defaultFolder  = $DefaultFolder
-  allowedOrigins = @($Origin)
+  allowedOrigins = @($Origin, $FirefoxId)
 }
 Write-Utf8NoBom (Join-Path $HostDir "config.json") ($config | ConvertTo-Json)
 
@@ -76,15 +79,29 @@ $hostManifest = [ordered]@{
 }
 Write-Utf8NoBom $hostManifestPath ($hostManifest | ConvertTo-Json)
 
+# --- Firefox host manifest (Firefox uses "allowed_extensions" with the add-on ID)
+$firefoxManifestPath = Join-Path $HostDir "$HostName.firefox.json"
+$firefoxManifest = [ordered]@{
+  name               = $HostName
+  description        = "Video Saver yt-dlp helper"
+  path               = (Join-Path $HostDir "host.bat")
+  type               = "stdio"
+  allowed_extensions = @($FirefoxId)
+}
+Write-Utf8NoBom $firefoxManifestPath ($firefoxManifest | ConvertTo-Json)
+
 # --- Registry (current user only)
 foreach ($browser in @("Google\Chrome", "Microsoft\Edge", "BraveSoftware\Brave-Browser")) {
   $key = "HKCU:\Software\$browser\NativeMessagingHosts\$HostName"
   New-Item -Path $key -Force | Out-Null
   Set-Item -Path $key -Value $hostManifestPath
 }
+$ffKey = "HKCU:\Software\Mozilla\NativeMessagingHosts\$HostName"
+New-Item -Path $ffKey -Force | Out-Null
+Set-Item -Path $ffKey -Value $firefoxManifestPath
 
 Write-Host "Installed the Video Saver yt-dlp helper."
-Write-Host "  Extension ID : $ExtId"
+Write-Host "  Extension ID : $ExtId (Chrome/Edge/Brave), $FirefoxId (Firefox)"
 Write-Host "  yt-dlp.exe   : $YtDlpPath  (version $(& $YtDlpPath --version))"
 Write-Host "  Node.js      : $node"
 Write-Host "  Host manifest: $hostManifestPath"

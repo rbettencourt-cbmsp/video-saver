@@ -361,10 +361,12 @@ function cancel(msg) {
 
 function main() {
   const cfg = loadConfig();
-  // Chrome passes the caller's origin, e.g. "chrome-extension://<id>/", as the first argument.
-  const origin = process.argv.find((a) => a.startsWith("chrome-extension://")) || "";
-  if (!cfg.allowedOrigins.includes(origin)) {
-    log("rejected origin", JSON.stringify(origin));
+  // Who is calling: Chrome passes the extension origin ("chrome-extension://<id>/") as the
+  // first argument; Firefox passes the host manifest path and then the add-on ID.
+  const args = process.argv.slice(2);
+  const caller = args.find((a) => cfg.allowedOrigins.includes(a));
+  if (!caller) {
+    log("rejected caller", JSON.stringify(args.filter((a) => !a.startsWith("--parent-window")).join(" ")));
     send({ type: "error", error: "This extension isn't allowed to use the yt-dlp helper." });
     setTimeout(() => process.exit(1), 100);
     return;

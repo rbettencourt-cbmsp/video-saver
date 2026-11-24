@@ -39,6 +39,7 @@
         "<all_urls>"
       ],
       "js": [
+        "compat.js",
         "detect.js"
       ],
       "all_frames": true,
@@ -49,6 +50,7 @@
         "<all_urls>"
       ],
       "js": [
+        "compat.js",
         "content.js"
       ],
       "run_at": "document_idle"
@@ -59,6 +61,7 @@
         "https://m.youtube.com/*"
       ],
       "js": [
+        "compat.js",
         "youtube.js"
       ],
       "css": [
@@ -70,6 +73,7 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "compat.js",
         "popup.html",
         "popup.css",
         "popup.js",

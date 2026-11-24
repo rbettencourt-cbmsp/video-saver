@@ -20,6 +20,22 @@ This is the technical companion to the [README](../README.md).
 | `youtube.js/css` | Download panel on YouTube watch pages |
 | `native-host/` | YouTube helper (`host.js`) and its install/uninstall scripts |
 
+## Chrome and Firefox
+
+The same source runs in both browsers. `npm run build:firefox` copies it to `dist/firefox` with a Firefox manifest. The differences:
+
+| | Chrome / Edge / Brave | Firefox |
+|---|---|---|
+| Background | service worker (`importScripts`) | background scripts listed in the manifest |
+| API namespace | `chrome` | `browser`; `compat.js` points `chrome` at it, and all shared code uses promises, not callbacks |
+| Fixed ID | `key` → `doocigjijigkklclednoibneaenlmmnj` | `browser_specific_settings.gecko.id` → `video-saver@rbettencourt-cbmsp` |
+| Referer for downloads | `declarativeNetRequest` session rule per job | blocking `webRequest.onBeforeSendHeaders` in `background.js`, because Firefox doesn't apply DNR rules to an extension's own requests |
+| Request source | `initiator` (origin only) | `originUrl` / `documentUrl` |
+| Native helper | `allowed_origins`; the caller origin is the first argument | `allowed_extensions`; the host manifest path and then the add-on ID are the arguments |
+| Helper registry key | `HKCUSoftwareGoogleChrome…` (also Edge, Brave) | `HKCUSoftwareMozillaNativeMessagingHosts…` |
+
+`npm run lint:firefox` runs Mozilla's `web-ext lint` on the build. It currently reports 0 errors, and one warning about a dynamic `import` inside the bundled ffmpeg.wasm worker.
+
 ## Finding videos
 
 - **Network:** `background.js` checks every response in each tab, including player iframes. A response counts as media by its URL ending (`.m3u8`, `.mpd`, `.mp4`, `.webm`, `.mov`, `.m4v`) or its `Content-Type` (HLS/DASH manifests). Stream segments are ignored. The frame's URL is kept as the Referer to use later

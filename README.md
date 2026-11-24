@@ -9,7 +9,7 @@ A free, open-source browser extension that saves videos from web pages as a sing
 - Handles long videos (hours), with a download queue that runs 3 at once
 - **YouTube** downloads use [yt-dlp](https://github.com/yt-dlp/yt-dlp) on your own computer (optional, Windows; see [YouTube setup](#youtube-setup-optional-windows))
 
-Works in Chrome, Edge, Brave and other Chromium browsers.
+Works in **Chrome, Edge, Brave** (and other Chromium browsers) and in **Firefox** 128 or newer.
 
 > **Please use it responsibly.** Only save videos you own or have permission to keep, and follow the terms of the site and the creator. Video Saver does **not** get around DRM (Netflix, Disney+, Prime Video and similar), logins or paywalls, and never will.
 
@@ -18,6 +18,7 @@ Works in Chrome, Edge, Brave and other Chromium browsers.
 ## Contents
 
 - [Install](#install)
+- [Install in Firefox](#install-in-firefox)
 - [How to use](#how-to-use)
 - [YouTube setup (optional, Windows)](#youtube-setup-optional-windows)
 - [Updating](#updating)
@@ -66,6 +67,32 @@ npm install
 4. Optional: click the puzzle icon in the toolbar and pin **Video Saver**
 
 > On macOS or Linux, install Node.js from [nodejs.org](https://nodejs.org), then run steps 2–5 in a terminal. Everything except the YouTube button works there.
+
+---
+
+## Install in Firefox
+
+Do steps 1–4 above, then build the Firefox version:
+
+```powershell
+npm run build:firefox
+```
+
+This creates the folder `distirefox`. Load it:
+
+1. Open `about:debugging#/runtime/this-firefox` in Firefox
+2. Click **Load Temporary Add-on…**
+3. Choose `distirefoxmanifest.json`
+
+Firefox removes temporary add-ons when it closes, so repeat this after each restart. If the popup says Video Saver needs access to websites, click **Allow access to all sites**.
+
+To keep it installed permanently, Firefox needs the add-on to be signed by Mozilla. That's free: create an account on [addons.mozilla.org](https://addons.mozilla.org/developers/), choose **Submit a New Add-on → On your own**, and upload a ZIP of `distirefox` (made with the command below). Mozilla returns a signed `.xpi` that installs normally.
+
+```powershell
+Compress-Archive -Path distirefox* -DestinationPath distideo-saver-firefox.zip -Force
+```
+
+For **YouTube** in Firefox, follow [YouTube setup](#youtube-setup-optional-windows) as usual. The same setup command also registers the helper for Firefox.
 
 ---
 
@@ -129,7 +156,7 @@ node --version; ffmpeg -version | Select-Object -First 1; .\yt-dlp.exe --version
 powershell -ExecutionPolicy Bypass -File .\native-host\install-host.ps1
 ```
 
-**8. Reload the extension.** In `chrome://extensions`, remove Video Saver, then add it again with **Load unpacked**. Then reload the YouTube tab.
+**8. Reload the extension.** In `chrome://extensions`, remove Video Saver, then add it again with **Load unpacked**. In Firefox, load `distirefox` again from `about:debugging`. Then reload the YouTube tab.
 
 Under the video you should now see **Download**, a quality menu, **Options** and **?**. The status line should read **Ready · yt-dlp …**. Click **?** at any time for these same steps with copy buttons.
 

@@ -173,12 +173,13 @@ try {
       },
     },
     downloads: {
-      download({ url, filename }, cb) {
-        fetch(url).then((r) => r.blob()).then((blob) => {
-          saved.push({ filename, blob });
-          cb(saved.length);
-          setTimeout(() => onChanged.forEach((l) => l({ id: saved.length, state: { current: "complete" } })), 0);
-        });
+      // Promise style, like the real API in both Chrome (MV3) and Firefox.
+      async download({ url, filename }) {
+        const blob = await (await fetch(url)).blob();
+        saved.push({ filename, blob });
+        const id = saved.length;
+        setTimeout(() => onChanged.forEach((l) => l({ id, state: { current: "complete" } })), 0);
+        return id;
       },
       onChanged: { addListener: (l) => onChanged.push(l), removeListener: (l) => (onChanged = onChanged.filter((x) => x !== l)) },
     },

@@ -307,7 +307,23 @@ document.getElementById("open-downloads").addEventListener("click", (e) => {
   send({ type: "openManager" });
 });
 
+// Firefox lets people switch off an add-on's site access; without it nothing can be found.
+async function checkSiteAccess() {
+  const has = await chrome.permissions.contains({ origins: ["<all_urls>"] }).catch(() => true);
+  if (has) return;
+  const el = document.getElementById("update");
+  el.hidden = false;
+  el.replaceChildren("Video Saver needs access to websites to find videos. ");
+  const b = document.createElement("button");
+  b.textContent = "Allow access to all sites";
+  b.addEventListener("click", async () => {
+    if (await chrome.permissions.request({ origins: ["<all_urls>"] })) location.reload();
+  });
+  el.append(b);
+}
+
 (async () => {
+  await checkSiteAccess();
   const { jobs = [] } = await chrome.storage.session.get("jobs");
   renderJobs(jobs);
   const update = await send({ type: "getUpdate" });
