@@ -1,6 +1,7 @@
+import { toMp4 } from "./mux.js";
+
 // Downloads an HLS stream segment by segment and joins it into one file.
-// Plain-TS streams become .ts; fMP4 streams (with an init segment) become .mp4.
-// If audio is a separate track, it is saved as a second file alongside the video.
+// The video (plus a separate audio track, if any) is then packed into one MP4.
 // Encrypted/DRM streams are deliberately not supported.
 
 const params = new URLSearchParams(location.search);
@@ -119,22 +120,36 @@ async function run() {
   const video = await fetchTrack(videoUrl, "video");
   const audio = audioUrl ? await fetchTrack(audioUrl, "audio") : null;
 
-  if (!audio) {
-    setStatus(`Choose where to save the file (${mb(video.blob)})â€¦`);
-    await saveBlob(video.blob, `${baseName}.${video.ext}`);
+  let mp4 = null;
+  try {
+    mp4 = await toMp4(video, audio, (msg) => setStatus(msg));
+  } catch (err) {
+    console.error(err);
+    $("warn").textContent = `Couldn't merge into MP4 (${err.message.split("
+")[0]}). Saving the original files instead.`;
+  }
+
+  if (mp4) {
+    setStatus(`Choose where to save the MP4 (${mb(mp4)})…`);
+    await saveBlob(mp4, `${baseName}.mp4`);
     setStatus("Saved. You can close this tab.");
     return;
   }
 
+  // Fallback: save the raw tracks as they came from the server.
+  if (!audio) {
+    setStatus(`Choose where to save the file (${mb(video.blob)})…`);
+    await saveBlob(video.blob, `${baseName}.${video.ext}`);
+    setStatus("Saved. You can close this tab.");
+    return;
+  }
   const vName = `${baseName}.video.${video.ext}`;
   const aName = `${baseName}.audio.${audio.ext}`;
-  setStatus(`Choose where to save the video track (${mb(video.blob)})â€¦`);
+  setStatus(`Choose where to save the video track (${mb(video.blob)})…`);
   await saveBlob(video.blob, vName);
-  setStatus(`Choose where to save the audio track (${mb(audio.blob)})â€¦`);
+  setStatus(`Choose where to save the audio track (${mb(audio.blob)})…`);
   await saveBlob(audio.blob, aName);
   setStatus("Saved video and audio as two files. You can close this tab.");
-  $("warn").textContent =
-    "This stream keeps audio separate. To merge them into one MP4, run in the folder you saved to:";
   const cmd = document.createElement("pre");
   cmd.textContent = `ffmpeg -i "${vName}" -i "${aName}" -c copy "${baseName}.mp4"`;
   $("warn").after(cmd);

@@ -1,0 +1,51 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>mux test</title>
+<pre id="out">running…</pre>
+<script type="module">
+// Manual browser test for mux.js: serve the repo root and open /test/mux.html.
+import { FFmpeg } from "../vendor/ffmpeg/index.js";
+import { toMp4 } from "../mux.js";
+
+const out = document.getElementById("out");
+const say = (s) => (out.textContent += "\n" + s);
+const core = { coreURL: new URL("../vendor/core/ffmpeg-core.js", import.meta.url).href,
+               wasmURL: new URL("../vendor/core/ffmpeg-core.wasm", import.meta.url).href };
+
+async function makeTracks() {
+  const ff = new FFmpeg();
+  await ff.load(core);
+  await ff.exec(["-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=3", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-f", "mpegts", "v.ts"]);
+  await ff.exec(["-f", "lavfi", "-i", "sine=frequency=440:duration=3", "-c:a", "aac", "-f", "mpegts", "a.ts"]);
+  const v = await ff.readFile("v.ts");
+  const a = await ff.readFile("a.ts");
+  ff.terminate();
+  return { v: new Blob([v]), a: new Blob([a]) };
+}
+
+async function probe(blob) {
+  const ff = new FFmpeg();
+  const lines = [];
+  ff.on("log", ({ message }) => lines.push(message));
+  await ff.load(core);
+  await ff.writeFile("p.mp4", new Uint8Array(await blob.arrayBuffer()));
+  await ff.exec(["-i", "p.mp4"]);
+  ff.terminate();
+  return lines.filter((l) => /Stream #|Duration|major_brand/.test(l)).join("\n");
+}
+
+try {
+  const { v, a } = await makeTracks();
+  say(`made video.ts ${v.size} B, audio.ts ${a.size} B`);
+  const mp4 = await toMp4({ blob: v, ext: "ts" }, { blob: a, ext: "ts" }, say);
+  say(`merged mp4 ${mp4.size} B`);
+  const info = await probe(mp4);
+  say(info);
+  const ok = /Video: h264/.test(info) && /Audio: aac/.test(info);
+  const single = await toMp4({ blob: v, ext: "ts" }, null, () => {});
+  say(`video-only mp4 ${single.size} B`);
+  say(ok && single.size > 0 ? "RESULT: PASS" : "RESULT: FAIL");
+} catch (e) {
+  say("RESULT: ERROR " + (e.stack || e.message || e));
+}
+</script>

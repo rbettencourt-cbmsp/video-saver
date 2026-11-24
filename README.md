@@ -15,6 +15,7 @@ It does **not** handle encrypted or DRM-protected streams, and that is on purpos
 
 ## Install (developer mode)
 
+1. In this folder, run `npm install` (this also copies ffmpeg into `vendor/`)
 1. Open `chrome://extensions` (or `edge://extensions`)
 2. Turn on **Developer mode**
 3. Click **Load unpacked** and pick this folder
@@ -25,23 +26,22 @@ It does **not** handle encrypted or DRM-protected streams, and that is on purpos
 2. Click the extension icon. Pick the item marked **Full stream (recommended)**. Items marked *Preview clip* are short thumbnail animations, not the video
 3. Click **Save**
 
-## Convert .ts to .mp4 (optional)
-
-```powershell
-ffmpeg -i input.ts -c copy output.mp4
-```
-
 ## Known limitations
 
-- When a stream keeps audio in a separate track, the video and audio are saved as two files; the saver shows the `ffmpeg` command to merge them
 - Byte-range HLS isn't supported yet
-- The whole video is held in memory before saving, so very long videos use a lot of RAM
+- The whole video is held in memory (more than once while merging), so very long videos use a lot of RAM. Browser WebAssembly can't go past about 2 GB
 
 ## Tests
 
 ```powershell
-node --test
+npm test
 ```
+
+To check the MP4 merge in a real browser, run `python -m http.server 8765` in this folder and open `http://127.0.0.1:8765/test/mux.html`. It should end with `RESULT: PASS`.
+
+## Licenses
+
+The extension's own code is MIT (see `LICENSE`). The bundled `@ffmpeg/core` is **GPL-2.0-or-later**. That's fine for personal use, but if you publish the extension with ffmpeg included, the package as a whole has to follow the GPL (for example, by sharing the source).
 
 ## Responsible use
 

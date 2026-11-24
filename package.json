@@ -1,0 +1,14 @@
+{
+  "name": "video-saver",
+  "version": "0.2.0",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node scripts/vendor.js",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "@ffmpeg/core": "0.12.10",
+    "@ffmpeg/ffmpeg": "0.12.15"
+  }
+}
