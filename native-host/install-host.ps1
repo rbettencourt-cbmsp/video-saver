@@ -33,6 +33,11 @@ $hex = -join ($hash[0..15] | ForEach-Object { $_.ToString("x2") })
 $ExtId = -join ($hex.ToCharArray() | ForEach-Object { [char](97 + [Convert]::ToInt32([string]$_, 16)) })
 $Origin = "chrome-extension://$ExtId/"
 
+# Windows PowerShell's "UTF8" adds a byte-order mark; write plain UTF-8 instead.
+function Write-Utf8NoBom([string]$Path, [string]$Text) {
+  [System.IO.File]::WriteAllText($Path, $Text, (New-Object System.Text.UTF8Encoding($false)))
+}
+
 # --- yt-dlp.exe
 if (-not $YtDlpPath) {
   $existing = Join-Path $HostDir "config.json"
@@ -54,7 +59,7 @@ $config = [ordered]@{
   defaultFolder  = $DefaultFolder
   allowedOrigins = @($Origin)
 }
-$config | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $HostDir "config.json")
+Write-Utf8NoBom (Join-Path $HostDir "config.json") ($config | ConvertTo-Json)
 
 # --- host.bat (Chrome runs this; it must not print anything itself)
 $bat = "@echo off`r`n""$node"" ""%~dp0host.js"" %*`r`n"
@@ -69,7 +74,7 @@ $hostManifest = [ordered]@{
   type            = "stdio"
   allowed_origins = @($Origin)
 }
-$hostManifest | ConvertTo-Json | Set-Content -Encoding UTF8 $hostManifestPath
+Write-Utf8NoBom $hostManifestPath ($hostManifest | ConvertTo-Json)
 
 # --- Registry (current user only)
 foreach ($browser in @("Google\Chrome", "Microsoft\Edge", "BraveSoftware\Brave-Browser")) {

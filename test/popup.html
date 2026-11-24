@@ -1,0 +1,64 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Popup preview</title>
+  <!-- Visual check for popup.html/popup.css/popup.js with fake chrome.* data.
+       Serve the repo root and open /test/popup.html. -->
+  <link rel="stylesheet" href="../popup.css">
+  <style>html { background: #888; } body { margin: 20px; box-shadow: 0 4px 20px #0006; }</style>
+</head>
+<body>
+  <header>
+    <h1>Video Saver</h1>
+    <button id="refresh" title="Scan again">Rescan</button>
+  </header>
+  <div id="update" hidden></div>
+  <p id="status">Scanning…</p>
+  <ul id="list"></ul>
+  <section id="queue" hidden>
+    <h2>Downloads</h2>
+    <ul id="jobs"></ul>
+  </section>
+  <footer>
+    <span>Tip: if nothing shows up, play the video, then click Rescan.</span>
+    <a href="#" id="open-downloads">Open downloads</a>
+  </footer>
+  <script>
+    const tab = { id: 1, url: "https://www.skool.com/some-course/classroom/abc", title: "CGE Walkthrough Video - Onboarding Page" };
+    window.chrome = {
+      tabs: { query: async () => [tab], get: async () => tab },
+      runtime: {
+        getURL: (p) => "/" + p,
+        sendMessage: async (m) => m.type === "getMedia" ? [
+          { url: "https://cdn.example.test/hls/very/long/path/to/the/stream/master-playlist-with-a-long-name.m3u8?token=abc", type: "hls", referrer: "https://player.example.test/embed/1", inFrame: true, seen: 2 },
+          { url: "https://cdn.example.test/sessions/thumbnails/preview-clip-1234567890abcdef.mp4", type: "file", seen: 1 },
+          { url: "https://cdn.example.test/drm/manifest.mpd", type: "dash", seen: 0 },
+        ] : m.type === "getUpdate" ? null : {},
+      },
+      scripting: { executeScript: async () => [{ result: [
+        { type: "youtube", embedId: "dQw4w9WgXcQ", referrer: tab.url, inFrame: false },
+        { type: "youtube", embedId: "jNQXAC9IVRw", referrer: tab.url, inFrame: false },
+      ] }] },
+      storage: {
+        session: { get: async () => ({ jobs: [
+          { name: "CGE Walkthrough Video - Onboarding Page UpLevel", status: "running", progress: 0.42, speed: 3.4e6 },
+          { name: "Lesson 2", status: "done" },
+        ] }) },
+        onChanged: { addListener() {} },
+      },
+    };
+    // Fake manifests so classification has something to read.
+    const realFetch = fetch;
+    window.fetch = async (url, o) => {
+      if (String(url).endsWith(".mpd")) return new Response(`<?xml version="1.0"?><MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT4S"><Period><AdaptationSet contentType="video"><ContentProtection schemeIdUri="x"/><Representation id="v" bandwidth="1"><BaseURL>v.mp4</BaseURL></Representation></AdaptationSet></Period></MPD>`);
+      if (String(url).includes(".m3u8")) return new Response("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=1920x1080\nhi.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360\nlo.m3u8\n");
+      return realFetch(url, o);
+    };
+  </script>
+  <script src="../common.js"></script>
+  <script src="../hls.js"></script>
+  <script src="../dash.js"></script>
+  <script src="../popup.js"></script>
+</body>
+</html>

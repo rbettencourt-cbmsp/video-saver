@@ -121,6 +121,28 @@ test("host rejects extensions that aren't allowed", async () => {
   h.stop();
 });
 
+test("host accepts a config.json saved with a UTF-8 BOM (Windows PowerShell)", { skip: !fs.existsSync(YTDLP) && "yt-dlp.exe not present" }, async () => {
+  const cfgPath = path.join(os.tmpdir(), `vs-host-bom-${process.pid}.json`);
+  fs.writeFileSync(cfgPath, "﻿" + JSON.stringify({ ytDlpPath: YTDLP, allowedOrigins: [ORIGIN] }));
+  const child = spawn(process.execPath, [HOST, ORIGIN], { env: { ...process.env, VS_HOST_CONFIG: cfgPath } });
+  const reply = await new Promise((resolve, reject) => {
+    let buf = Buffer.alloc(0);
+    child.stdout.on("data", (d) => {
+      buf = Buffer.concat([buf, d]);
+      if (buf.length >= 4 && buf.length >= 4 + buf.readUInt32LE(0)) resolve(JSON.parse(buf.subarray(4, 4 + buf.readUInt32LE(0))));
+    });
+    setTimeout(() => reject(new Error("no reply")), 30000);
+    const body = Buffer.from(JSON.stringify({ type: "ping", reqId: "b" }));
+    const h = Buffer.alloc(4);
+    h.writeUInt32LE(body.length);
+    child.stdin.write(Buffer.concat([h, body]));
+  });
+  child.kill();
+  fs.rmSync(cfgPath, { force: true });
+  assert.equal(reply.type, "pong", reply.error);
+  assert.equal(reply.ok, true);
+});
+
 test("host protocol: ping, bad input, unknown command", { skip: !fs.existsSync(YTDLP) && "yt-dlp.exe not present" }, async () => {
   const h = startHost(ORIGIN, { ytDlpPath: YTDLP, allowedOrigins: [ORIGIN], defaultFolder: os.tmpdir() });
   try {

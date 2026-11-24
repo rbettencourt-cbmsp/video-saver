@@ -167,13 +167,29 @@ async function save(item, tab, quality, btn) {
   }, 2000);
 }
 
-function render(items, tab) {
+function render(allItems, tab) {
   listEl.replaceChildren();
+  // YouTube players are saved with the Download button on youtube.com, not from here:
+  // show one short notice instead of an entry per player.
+  const youtube = allItems.filter((i) => i.type === "youtube");
+  const items = allItems.filter((i) => i.type !== "youtube");
   const usable = items.filter((i) => i.rank < 5).length;
+
+  if (youtube.length) {
+    const note = document.createElement("li");
+    note.className = "notice";
+    const onYouTube = /(^|\.)youtube\.com$/.test(new URL(tab.url || "about:blank").hostname || "");
+    note.textContent = onYouTube
+      ? "YouTube video: use the Download button under the video."
+      : `YouTube video${youtube.length > 1 ? "s" : ""} on this page: open ${youtube.length > 1 ? "them" : "it"} on youtube.com and use the Download button under the video.`;
+    listEl.append(note);
+  }
   if (!items.length) {
-    statusEl.textContent = "No videos found yet. Play the video, then click Rescan.";
+    statusEl.textContent = youtube.length ? "" : "No videos found yet. Play the video, then click Rescan.";
+    statusEl.hidden = !statusEl.textContent;
     return;
   }
+  statusEl.hidden = false;
   statusEl.textContent = `${usable} video source${usable === 1 ? "" : "s"} found`;
   for (const item of items) {
     const li = document.createElement("li");

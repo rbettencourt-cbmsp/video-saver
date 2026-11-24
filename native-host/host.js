@@ -33,8 +33,11 @@ const LOG_PATH = path.join(HOST_DIR, "host.log");
 function loadConfig() {
   let cfg = {};
   try {
-    cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
-  } catch {}
+    // Windows PowerShell writes UTF-8 with a byte-order mark, which JSON.parse rejects.
+    cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8").replace(/^﻿/, ""));
+  } catch (err) {
+    if (err.code !== "ENOENT") log("couldn't read config.json:", err.message);
+  }
   return {
     ytDlpPath: cfg.ytDlpPath || path.join(HOST_DIR, "..", "yt-dlp.exe"),
     ffmpegPath: cfg.ffmpegPath || "", // optional: folder or ffmpeg.exe; otherwise PATH is used

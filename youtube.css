@@ -37,7 +37,7 @@
 }
 .vs-yt button { cursor: pointer; font-weight: 500; }
 .vs-yt button:hover:not(:disabled), .vs-yt select:hover { background: var(--vs-chip-hover); }
-.vs-yt button:disabled { opacity: 0.5; cursor: default; }
+.vs-yt button:disabled { opacity: 0.65; cursor: default; }
 .vs-yt .vs-primary { background: #065fd4; color: #fff; display: inline-flex; align-items: center; gap: 6px; }
 .vs-yt .vs-primary:hover:not(:disabled) { background: #0556bf; }
 .vs-yt .vs-primary svg { width: 20px; height: 20px; }
@@ -53,9 +53,10 @@ html[dark] .vs-yt .vs-link { color: #3ea6ff; }
 .vs-yt .vs-progress { display: none; height: 4px; background: var(--vs-line); border-radius: 2px; overflow: hidden; max-width: 520px; }
 .vs-yt .vs-progress > div { height: 100%; width: 0; background: #065fd4; transition: width 0.3s; }
 .vs-yt.vs-busy .vs-progress { display: block; }
-.vs-yt .vs-status { font-size: 13px; color: var(--vs-muted); min-height: 18px; }
-.vs-yt .vs-status.vs-error { color: #cc0000; }
-html[dark] .vs-yt .vs-status.vs-error { color: #ff6b6b; }
+.vs-yt .vs-status { font-size: 14px; color: var(--vs-text); min-height: 20px; }
+.vs-yt .vs-status.vs-error { color: #c00; font-weight: 500; }
+html[dark] .vs-yt .vs-status.vs-error { color: #ff8a80; }
+.vs-yt select option { color: #0f0f0f; background: #fff; }
 .vs-yt .vs-status.vs-ok { color: #2ba640; }
 
 /* "?" setup help */
@@ -63,7 +64,7 @@ html[dark] .vs-yt .vs-status.vs-error { color: #ff6b6b; }
 .vs-yt.vs-show-help button.vs-help-btn,
 .vs-yt.vs-show-help button.vs-help-btn:hover:not(:disabled) { background: #065fd4; color: #fff; }
 .vs-yt .vs-help { display: none; flex-direction: column; gap: 6px; max-width: 640px; padding: 12px 14px;
-  border-radius: 12px; background: var(--vs-chip); font-size: 13px; line-height: 1.45; }
+  border-radius: 12px; background: var(--vs-chip); font-size: 14px; line-height: 1.5; }
 .vs-yt.vs-show-help .vs-help { display: flex; }
 .vs-yt .vs-help p { margin: 0; color: var(--vs-text); }
 .vs-yt .vs-help-title { font-weight: 600; font-size: 14px; }
@@ -76,8 +77,9 @@ html[dark] .vs-yt .vs-help a { color: #3ea6ff; }
 .vs-yt .vs-cmd { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
 .vs-yt .vs-cmd code { padding: 6px 8px; }
 .vs-yt .vs-cmd button { height: 28px; padding: 0 12px; font-size: 12px; }
-.vs-yt .vs-help-state { font-size: 12px; font-weight: 500; }
+.vs-yt .vs-help-state { font-size: 13px; font-weight: 600; }
 .vs-yt .vs-help-state.vs-ok { color: #2ba640; }
 .vs-yt .vs-help-state.vs-error { color: #cc0000; }
-html[dark] .vs-yt .vs-help-state.vs-error { color: #ff6b6b; }
-.vs-yt .vs-help-note { color: var(--vs-muted) !important; font-size: 12px; }
+html[dark] .vs-yt .vs-help-state.vs-error { color: #ff8a80; }
+html[dark] .vs-yt .vs-help-state.vs-ok { color: #6fdc8c; }
+.vs-yt .vs-help-note { color: var(--vs-muted) !important; font-size: 13px; }
