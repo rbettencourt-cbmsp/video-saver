@@ -14,8 +14,11 @@
 //    https://www.youtube.com/watch?v=<id>. Quality is one of a fixed list. The folder
 //    must be an existing absolute directory; the filename is sanitised (no paths,
 //    no template syntax). yt-dlp runs with --ignore-config and without a shell.
-//  * Nothing here bypasses DRM, logins or access controls: no cookies are passed, so
-//    yt-dlp only sees what any signed-out viewer can see.
+//  * Nothing here bypasses DRM, logins or access controls. By default no cookies are
+//    passed, so yt-dlp sees what any signed-out viewer sees. If the user turns on
+//    "Use my YouTube sign-in", the extension sends that browser's youtube.com cookies;
+//    they are checked (youtube.com only), written to a private temp file for this one
+//    download, given to yt-dlp with --cookies, and deleted when it ends.
 
 "use strict";
 const fs = require("node:fs");
@@ -109,8 +112,34 @@ function safeFolder(folder) {
   }
 }
 
+/**
+ * Validates cookies sent by the extension: Netscape cookie-file text where every cookie
+ * belongs to youtube.com. Returns the cleaned text, or null if anything is off.
+ */
+const MAX_COOKIE_BYTES = 256 * 1024;
+function validCookieText(text) {
+  if (typeof text !== "string" || !text || Buffer.byteLength(text) > MAX_COOKIE_BYTES) return null;
+  const lines = text.split(/\r?\n/);
+  if (lines[0] !== "# Netscape HTTP Cookie File") return null;
+  const out = [lines[0]];
+  let count = 0;
+  for (const line of lines.slice(1)) {
+    if (!line) continue;
+    const fields = line.replace(/^#HttpOnly_/, "").split("\t");
+    if (line.startsWith("#") && !line.startsWith("#HttpOnly_")) return null; // no stray comments
+    if (fields.length !== 7) return null;
+    const [domain, sub, cpath, secure, expires, name] = fields;
+    if (!/^\.?([a-z0-9-]+\.)*youtube\.com$/i.test(domain)) return null;
+    if (!/^(TRUE|FALSE)$/.test(sub) || !/^(TRUE|FALSE)$/.test(secure) || !/^\d+$/.test(expires)) return null;
+    if (!cpath.startsWith("/") || !name || /[\r\n]/.test(line)) return null;
+    out.push(line);
+    count++;
+  }
+  return count ? out.join("\n") + "\n" : null;
+}
+
 /** Builds the yt-dlp argument list. Every value is fixed or validated. */
-function buildArgs({ id, quality, folder, name, hasFfmpeg, ffmpegPath, jsRuntime }) {
+function buildArgs({ id, quality, folder, name, hasFfmpeg, ffmpegPath, jsRuntime, cookiesFile }) {
   // "%" is yt-dlp template syntax, so a literal "%" in the folder must be doubled.
   const output = path.join(folder.replace(/%/g, "%%"), `${name ? name : "%(title).150B [%(id)s]"}.%(ext)s`);
   const args = [
@@ -125,6 +154,8 @@ function buildArgs({ id, quality, folder, name, hasFfmpeg, ffmpegPath, jsRuntime
   if (ffmpegPath) args.push("--ffmpeg-location", ffmpegPath);
   // Recent yt-dlp needs a JavaScript runtime for YouTube; Node (which runs this host) works.
   if (jsRuntime) args.push("--js-runtimes", jsRuntime);
+  // Only when the user opted in: a private temp file the host wrote from validated cookies.
+  if (cookiesFile) args.push("--cookies", cookiesFile);
   if (name) args.splice(args.indexOf("--restrict-filenames"), 1); // keep the user's chosen spaces
 
   if (quality === "audio") {
@@ -245,7 +276,15 @@ function killTree(child) {
 
 function shutdown() {
   for (const c of children.values()) killTree(c);
-  setTimeout(() => process.exit(0), 300);
+  setTimeout(() => {
+    // Remove any sign-in temp files this process wrote (normally already gone).
+    try {
+      for (const f of fs.readdirSync(os.tmpdir())) {
+        if (f.startsWith(`video-saver-cookies-${process.pid}-`)) fs.rmSync(path.join(os.tmpdir(), f), { force: true });
+      }
+    } catch {}
+    process.exit(0);
+  }, 300);
 }
 
 async function ping(cfg, reqId) {
@@ -330,10 +369,26 @@ async function download(cfg, msg) {
   if (msg.filename && !name) return fail("That file name can't be used.");
   if (!fs.existsSync(cfg.ytDlpPath)) return fail(`yt-dlp not found at ${cfg.ytDlpPath}. Run the setup again, or edit native-host/config.json.`);
 
+  // Opt-in sign-in: write the validated youtube.com cookies to a private temp file.
+  let cookiesFile = null;
+  if (msg.cookies != null) {
+    const text = validCookieText(msg.cookies);
+    if (!text) return fail("The YouTube sign-in data wasn't valid. Sign in to YouTube in this browser and try again.");
+    cookiesFile = path.join(os.tmpdir(), `video-saver-cookies-${process.pid}-${jobId}.txt`);
+    try {
+      fs.writeFileSync(cookiesFile, text, { mode: 0o600 });
+    } catch (err) {
+      return fail(`Couldn't prepare the YouTube sign-in: ${err.message}`);
+    }
+  }
+  const removeCookies = () => {
+    if (cookiesFile) fs.rm(cookiesFile, { force: true }, () => {});
+  };
+
   const ff = await findFfmpeg(cfg);
   const jsRuntime = jsRuntimeFor(await ytDlpVersion(cfg));
-  const args = buildArgs({ id, quality: msg.quality, folder, name, hasFfmpeg: ff.found, ffmpegPath: ff.location, jsRuntime });
-  log("download", jobId, id, msg.quality, folder);
+  const args = buildArgs({ id, quality: msg.quality, folder, name, hasFfmpeg: ff.found, ffmpegPath: ff.location, jsRuntime, cookiesFile });
+  log("download", jobId, id, msg.quality, folder, cookiesFile ? "(signed in)" : "");
   send({ type: "started", jobId, videoId: id, ffmpeg: ff.found });
 
   // detached on macOS/Linux puts yt-dlp (and the ffmpeg it starts) in its own process group,
@@ -379,11 +434,13 @@ async function download(cfg, msg) {
 
   child.on("error", (err) => {
     children.delete(jobId);
+    removeCookies();
     fail(`Couldn't start yt-dlp: ${err.message}`);
   });
   child.on("close", (code) => {
     const wasCancelled = child.__cancelled;
     children.delete(jobId);
+    removeCookies();
     if (wasCancelled) return send({ type: "cancelled", jobId });
     if (code === 0) {
       return send({ type: "done", jobId, file: lastFile, warning: ff.found ? undefined : "ffmpeg wasn't found, so the best single-file format was used (often lower quality, and audio stays M4A)." });
@@ -431,4 +488,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { youtubeId, safeName, safeFolder, buildArgs, parseProgress, jsRuntimeFor, QUALITIES };
+module.exports = { youtubeId, safeName, safeFolder, buildArgs, parseProgress, jsRuntimeFor, validCookieText, QUALITIES };

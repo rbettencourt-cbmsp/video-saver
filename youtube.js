@@ -73,6 +73,19 @@
     ui.filename = el("input", { type: "text", spellcheck: "false", placeholder: "File name (optional)" });
     ui.folderText = el("span", { text: "…" });
     ui.folderBtn = el("button", { text: "Change…", onclick: chooseFolder });
+    // Opt-in: let yt-dlp use this browser's YouTube sign-in (fixes "confirm you're not a bot").
+    ui.signIn = el("input", { type: "checkbox", id: "vs-sign-in" });
+    ui.signInRow = el(
+      "div",
+      { class: "vs-signin" },
+      el("label", { class: "vs-check", for: "vs-sign-in" }, ui.signIn, el("span", { text: "Use my YouTube sign-in" })),
+      el("div", {
+        class: "vs-signin-note",
+        text: "Only needed if YouTube says “Sign in to confirm you're not a bot”. Your youtube.com cookies (nothing else) " +
+          "are given to yt-dlp for that download only. YouTube may restrict accounts used with download tools, so a spare account is safest.",
+      })
+    );
+    ui.signIn.addEventListener("change", () => chrome.storage.local.set({ ytUseSignIn: ui.signIn.checked }));
     ui.bar = el("div");
     ui.status = el("div", { class: "vs-status" });
     ui.helpBtn = el("button", {
@@ -90,13 +103,15 @@
         "div",
         { class: "vs-options" },
         el("label", {}, "File name", ui.filename),
-        el("label", {}, "Save to", el("div", { class: "vs-folder" }, ui.folderText, ui.folderBtn))
+        el("label", {}, "Save to", el("div", { class: "vs-folder" }, ui.folderText, ui.folderBtn)),
+        ui.signInRow
       ),
       el("div", { class: "vs-progress" }, ui.bar),
       ui.status
     );
-    chrome.storage.local.get(["ytQuality", "ytFolder"]).then(({ ytQuality, ytFolder }) => {
+    chrome.storage.local.get(["ytQuality", "ytFolder", "ytUseSignIn"]).then(({ ytQuality, ytFolder, ytUseSignIn }) => {
       if (ytQuality) ui.quality.value = ytQuality;
+      ui.signIn.checked = ytUseSignIn === true; // off unless the user turned it on
       ui.folderText.textContent = ytFolder || helper?.defaultFolder || "Downloads\\Video Saver";
       ui.folderText.title = ui.folderText.textContent;
     });
@@ -377,6 +392,7 @@
       folder: ytFolder || "",
       filename: ui.filename.value.trim(),
       title: videoTitle(),
+      useSignIn: ui.signIn.checked,
     });
     if (!res || res.error) {
       setBusy(false);
@@ -425,7 +441,18 @@
       case "error":
         activeJob = null;
         setBusy(false);
-        setStatus(`Download failed: ${m.error}`, "error");
+        if (/confirm you.?re not a bot|Sign in to confirm/i.test(m.error || "")) {
+          // YouTube's bot check: point to the opt-in sign-in setting instead of yt-dlp's cookie advice.
+          setStatus(
+            ui.signIn.checked
+              ? "YouTube still wants a sign-in check. Make sure you're signed in to YouTube in this window, reload the page, and try again (turning off a VPN can also help)."
+              : "YouTube wants a sign-in check for this download. Try again with your VPN off, or open Options and turn on “Use my YouTube sign-in”.",
+            "error"
+          );
+          if (!ui.signIn.checked) panel.classList.add("vs-show-options");
+        } else {
+          setStatus(`Download failed: ${m.error}`, "error");
+        }
         break;
     }
   }

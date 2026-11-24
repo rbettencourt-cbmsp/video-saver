@@ -147,6 +147,13 @@ When you're done, the panel under a YouTube video shows **Download**, a quality 
 
 **Using it:** choose **Best available**, **1080p**, **720p**, **480p** or **Audio only (MP3)**, then click **Download**. Under **Options** you can change the file name and the folder (it starts as `Downloads/Video Saver`). You'll get a notification when it's done.
 
+**"Sign in to confirm you're not a bot".** yt-dlp is a separate program, so it can't use your browser's YouTube sign-in. By default it downloads as a signed-out viewer, and YouTube sometimes stops that, especially over a VPN.
+
+1. First, try again with your VPN off.
+2. If it still happens, open **Options** and tick **Use my YouTube sign-in**. Video Saver then gives yt-dlp your **youtube.com cookies only** (from the same window, so incognito uses incognito's sign-in). They're passed in a private temporary file that's deleted when the download ends.
+
+It's off by default. YouTube may restrict accounts it sees using download tools, so a spare Google account is the safest choice.
+
 ### YouTube setup on Windows
 
 Open **PowerShell in the Video Saver folder**: in File Explorer, Shift + right-click the folder → **Open PowerShell window here**.
@@ -296,6 +303,7 @@ The Video Saver popup shows a notice when a new version is out. To keep YouTube 
 | The YouTube panel says "not set up on this computer" | Follow [YouTube setup](#youtube-setup-optional), or click **?** under the video |
 | "This extension isn't allowed to use the yt-dlp helper" | Run the "Connect the helper" step of YouTube setup again, then reload the extension |
 | YouTube download fails with "Precondition check failed" or similar | Update yt-dlp (see [Updating](#updating)) |
+| YouTube: "Sign in to confirm you're not a bot" | Turn off your VPN and try again. If it persists, tick **Options → Use my YouTube sign-in** (see [Using it](#youtube-setup-optional)) |
 | YouTube: "ffmpeg wasn't found" | Install ffmpeg (YouTube setup), then restart the browser |
 | macOS: install script says yt-dlp or Node wasn't found | Run `brew install node ffmpeg yt-dlp`, open a new Terminal window, and try again |
 | A download stopped when I closed a tab | The **Downloads** tab does the work. Reopen it from the popup (**Open downloads**) and the queue carries on |

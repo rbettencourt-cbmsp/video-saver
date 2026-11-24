@@ -6,7 +6,36 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
-const { youtubeId, safeName, safeFolder, buildArgs, parseProgress } = require("../native-host/host.js");
+const { youtubeId, safeName, safeFolder, buildArgs, parseProgress, validCookieText } = require("../native-host/host.js");
+
+const COOKIE_HEAD = "# Netscape HTTP Cookie File";
+const cookieLine = (domain, name = "SID", value = "abc") => [domain, "TRUE", "/", "TRUE", "1900000000", name, value].join("\t");
+
+test("validCookieText accepts youtube.com cookies only", () => {
+  const ok = [COOKIE_HEAD, cookieLine(".youtube.com"), "#HttpOnly_" + cookieLine(".youtube.com", "__Secure-3PSID"), cookieLine("www.youtube.com", "PREF", "f6=40000000")].join("\n");
+  assert.equal(validCookieText(ok), ok + "\n");
+  for (const bad of [
+    [COOKIE_HEAD, cookieLine(".google.com")].join("\n"), // another site
+    [COOKIE_HEAD, cookieLine(".youtube.com.evil.example")].join("\n"), // look-alike
+    [COOKIE_HEAD, cookieLine(".notyoutube.com")].join("\n"),
+    [COOKIE_HEAD, "# a comment that isn't HttpOnly", cookieLine(".youtube.com")].join("\n"),
+    [COOKIE_HEAD, ".youtube.com\tTRUE\t/\tTRUE\tsoon\tSID\tx"].join("\n"), // bad expiry
+    [COOKIE_HEAD, ".youtube.com\tTRUE\t/"].join("\n"), // too few fields
+    cookieLine(".youtube.com"), // no header
+    COOKIE_HEAD, // no cookies
+    "",
+    null,
+    COOKIE_HEAD + "\n" + cookieLine(".youtube.com", "SID", "x".repeat(300 * 1024)), // too big
+  ]) assert.equal(validCookieText(bad), null, String(bad).slice(0, 80));
+});
+
+test("buildArgs passes --cookies only when given a cookie file", () => {
+  const base = { id: "dQw4w9WgXcQ", quality: "best", folder: "C:\\x", name: null, hasFfmpeg: true };
+  assert.ok(!buildArgs(base).includes("--cookies"));
+  const a = buildArgs({ ...base, cookiesFile: "C:\\tmp\\c.txt" });
+  assert.equal(a[a.indexOf("--cookies") + 1], "C:\\tmp\\c.txt");
+  assert.ok(a.indexOf("--cookies") < a.indexOf("--"), "cookie option comes before the URL separator");
+});
 
 const HOST = path.join(__dirname, "..", "native-host", "host.js");
 const YTDLP = path.join(__dirname, "..", "yt-dlp.exe");
@@ -193,6 +222,11 @@ test("host protocol: ping, bad input, unknown command", { skip: !fs.existsSync(Y
 
     h.post({ type: "download", jobId: "../../x", url: "https://youtu.be/dQw4w9WgXcQ", quality: "best" });
     assert.match((await h.next((m) => m.type === "error" && /job id/.test(m.error))).error, /Bad job id/);
+
+    h.post({ type: "download", jobId: "j4", url: "https://youtu.be/dQw4w9WgXcQ", quality: "best", folder: os.tmpdir(),
+      cookies: [COOKIE_HEAD, cookieLine(".google.com")].join("\n") });
+    assert.match((await h.next((m) => m.jobId === "j4")).error, /sign-in data wasn't valid/);
+    assert.ok(!fs.readdirSync(os.tmpdir()).some((f) => f.startsWith("video-saver-cookies-") && f.includes("-j4")), "no cookie file left");
 
     h.post({ type: "run", cmd: "calc.exe" });
     assert.match((await h.next((m) => m.type === "error" && /Unknown command/.test(m.error))).error, /Unknown command/);

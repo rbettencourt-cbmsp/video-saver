@@ -138,7 +138,12 @@ The Linux path is tested end to end in WSL (Ubuntu 24.04) with a stand-in yt-dlp
 - **URL:** reduced to an 11-character video ID and rebuilt as `https://www.youtube.com/watch?v=<id>`. Look-alike domains and other URLs are rejected
 - **Folder and file name:** the folder must be an existing local absolute path (no UNC or relative paths). The file name has path characters, `%` (yt-dlp template syntax), leftover `..` and reserved device names removed
 - **No command injection:** yt-dlp runs without a shell, with `--ignore-config --no-exec --no-playlist`, and the URL comes after `--`. Job IDs are restricted to `[A-Za-z0-9_-]`
-- **No logins:** no cookies or credentials are passed, so yt-dlp sees only what a signed-out viewer sees
+- **Logins are opt-in:** by default no cookies or credentials are passed, so yt-dlp sees only what a signed-out viewer sees. If the user ticks **Use my YouTube sign-in** (for YouTube's "confirm you're not a bot" check):
+  - `background.js` reads that tab's cookie store (normal, incognito or Firefox container) for `youtube.com` only, and only if a sign-in cookie is present
+  - `host.js` rejects the data unless it's Netscape cookie text in which every cookie's domain is `youtube.com` or a subdomain
+  - the cookies go to a temp file with mode `0600` for that one download (`--cookies`), deleted when yt-dlp exits, fails or is cancelled, or when the host shuts down
+  - nothing bypasses access controls: yt-dlp can only get what that signed-in account can already watch
+- **Permissions:** `cookies` is used only for this setting
 
 ## Optional update notice
 

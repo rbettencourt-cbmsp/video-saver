@@ -225,6 +225,36 @@ function ytRequest(message, replyType, timeoutMs) {
   });
 }
 
+// Opt-in "Use my YouTube sign-in": this browser window's youtube.com cookies (only those),
+// as Netscape cookie-file text for yt-dlp --cookies. Null if not signed in.
+const YT_SIGNED_IN = /^(SID|SAPISID|LOGIN_INFO|__Secure-1PSID|__Secure-3PSID)$/;
+async function ytCookieText(tab) {
+  let storeId = tab?.cookieStoreId; // Firefox (containers, private windows)
+  if (!storeId && chrome.cookies.getAllCookieStores) {
+    const stores = await chrome.cookies.getAllCookieStores();
+    storeId = stores.find((s) => (s.tabIds || []).includes(tab?.id))?.id; // Chrome: normal or incognito
+  }
+  const all = await chrome.cookies.getAll({ domain: "youtube.com", ...(storeId ? { storeId } : {}) });
+  const cookies = all.filter(
+    (c) => /(^|\.)youtube\.com$/i.test(c.domain.replace(/^\./, "")) && !/[\t\r\n]/.test(c.name + c.value)
+  );
+  if (!cookies.some((c) => YT_SIGNED_IN.test(c.name))) return null;
+  const lines = cookies.map((c) => {
+    const domain = c.hostOnly ? c.domain.replace(/^\./, "") : `.${c.domain.replace(/^\./, "")}`;
+    const expires = c.session || !c.expirationDate ? 0 : Math.floor(c.expirationDate);
+    return [
+      `${c.httpOnly ? "#HttpOnly_" : ""}${domain}`,
+      c.hostOnly ? "FALSE" : "TRUE",
+      c.path || "/",
+      c.secure ? "TRUE" : "FALSE",
+      expires,
+      c.name,
+      c.value,
+    ].join("\t");
+  });
+  return ["# Netscape HTTP Cookie File", ...lines].join("\n") + "\n";
+}
+
 function ytNotify(title, message) {
   chrome.notifications.create({ type: "basic", iconUrl: "icons/icon128.png", title, message, priority: 1 });
 }
@@ -237,10 +267,17 @@ Object.assign(handlers, {
   ytPing: () => ytRequest({ type: "ping" }, "pong", 30000),
   ytPickFolder: ({ initial }) => ytRequest({ type: "pickFolder", initial: String(initial || "") }, "folder", 10 * 60 * 1000),
 
-  async ytStart({ url, quality, folder, filename, title }, sender) {
+  async ytStart({ url, quality, folder, filename, title, useSignIn }, sender) {
     const id = ytVideoId(url);
     if (!id) return { error: "That isn't a YouTube video page." };
     if (!YT_QUALITIES.includes(quality)) return { error: "Unknown quality option." };
+    let cookies;
+    if (useSignIn) {
+      cookies = await ytCookieText(sender.tab);
+      if (!cookies) {
+        return { error: "You're not signed in to YouTube in this window. Sign in, reload the page, and try again." };
+      }
+    }
     const jobId = crypto.randomUUID();
     const tabId = sender.tab?.id;
     let port;
@@ -280,6 +317,7 @@ Object.assign(handlers, {
       quality,
       folder: String(folder || ""),
       filename: String(filename || "").slice(0, 200),
+      ...(cookies ? { cookies } : {}),
     });
     return { jobId };
   },
