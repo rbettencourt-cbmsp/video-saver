@@ -6,8 +6,10 @@
   "scripts": {
     "postinstall": "node scripts/vendor.js",
     "test": "node --test",
-    "build:firefox": "node scripts/build-firefox.js",
-    "lint:firefox": "npx --yes web-ext@8 lint --source-dir dist/firefox"
+    "build:firefox": "node scripts/build.js firefox",
+    "lint:firefox": "npx --yes web-ext@8 lint --source-dir dist/firefox",
+    "build": "node scripts/build.js",
+    "build:chrome": "node scripts/build.js chrome"
   },
   "devDependencies": {
     "@ffmpeg/core": "0.12.10",

@@ -1,0 +1,62 @@
+# Builds the ready-to-install packages.
+#  * When you publish a release on GitHub: tests, builds, and attaches
+#    video-saver-chrome-<version>.zip and video-saver-firefox-<version>.zip to the release.
+#  * You can also run it by hand (Actions → Build packages → Run workflow); the ZIPs are
+#    then available as a downloadable artifact on the run's page.
+name: Build packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to attach files to the release
+
+jobs:
+  build:
+    runs-on: windows-latest # the YouTube helper and its tests are Windows-specific
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install (also copies ffmpeg.wasm into vendor/)
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Check the release tag matches manifest.json
+        if: github.event_name == 'release'
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(node -p "require('./manifest.json').version")
+          if [ "$tag" != "$version" ]; then
+            echo "::error::Release tag $GITHUB_REF_NAME doesn't match manifest.json version $version. Update the version in manifest.json and package.json, push, then create the release again."
+            exit 1
+          fi
+
+      - name: Build Chrome and Firefox packages
+        run: npm run build
+
+      - name: Check the Firefox package with Mozilla's linter
+        run: npx --yes web-ext@8 lint --source-dir dist/firefox
+
+      - name: Keep the ZIPs as a downloadable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-saver-packages
+          path: dist/*.zip
+
+      - name: Attach the ZIPs to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/*.zip --clobber
