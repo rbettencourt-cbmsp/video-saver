@@ -280,13 +280,25 @@ How everything works (detection, formats, the queue, chunked merging, Chrome vs 
 
 ### Publishing a release
 
-GitHub builds the packages for you (see [`.github/workflows/release.yml`](.github/workflows/release.yml)):
+GitHub builds the packages for you (see [`.github/workflows/release.yml`](.github/workflows/release.yml)). First raise `"version"` in `manifest.json` and `package.json` (for example `0.6.0`), then commit and push. Then either:
 
-1. Raise `"version"` in `manifest.json` and `package.json` (for example `0.6.0`), then commit and push
-2. On GitHub, open **Releases → Draft a new release**
-3. Under **Choose a tag**, type `v0.6.0` (the same version, with a `v` in front) and choose **Create new tag**
-4. Add a title and notes, then click **Publish release**
-5. Open the **Actions** tab and watch **Build packages**. When it finishes (about 3 minutes), the three ZIPs are attached to the release
+**From the command line.** Push a tag; GitHub creates the release and attaches the ZIPs:
+
+```powershell
+git tag v0.6.0
+```
+
+```powershell
+git push origin v0.6.0
+```
+
+**Or on GitHub's website:**
+
+1. Open **Releases → Draft a new release**
+2. Under **Choose a tag**, type `v0.6.0` (the same version, with a `v` in front) and choose **Create new tag**
+3. Add a title and notes, then click the green **Publish release** button (not **Save draft**)
+
+Either way, open the **Actions** tab and watch **Build packages**. When it finishes (about 3 minutes), the three ZIPs are attached to the release.
 
 If the tag and `manifest.json` don't match, the build stops with an error saying so. You can also run the build by hand: **Actions → Build packages → Run workflow**. The ZIPs then appear under **Artifacts** on that run's page.
 
