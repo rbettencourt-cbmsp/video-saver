@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Video Saver",
+  "version": "0.1.0",
+  "description": "Find videos on the current page and save them for offline viewing.",
+  "permissions": ["webRequest", "storage", "scripting", "downloads", "tabs", "webNavigation"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Video Saver",
+    "default_popup": "popup.html"
+  }
+}
