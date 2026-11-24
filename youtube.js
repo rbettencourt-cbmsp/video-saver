@@ -175,8 +175,27 @@
     if (!busy) ui.bar.style.width = "0";
   }
 
+  // Light or dark: YouTube marks dark mode with <html dark>; as a fallback, measure the
+  // brightness of the page background.
+  function pageIsDark() {
+    if (document.documentElement.hasAttribute("dark")) return true;
+    for (const node of [document.querySelector("ytd-app"), document.body, document.documentElement]) {
+      if (!node) continue;
+      const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?/.exec(getComputedStyle(node).backgroundColor);
+      if (!m || (m[4] !== undefined && Number(m[4]) < 0.5)) continue; // transparent: look further up
+      const lum = (0.2126 * m[1] + 0.7152 * m[2] + 0.0722 * m[3]) / 255;
+      return lum < 0.5;
+    }
+    return matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+
+  function applyTheme() {
+    panel?.classList.toggle("vs-dark", pageIsDark());
+  }
+
   // Under the video on desktop; a small floating card elsewhere (Shorts, mobile layout).
   function attach() {
+    applyTheme();
     const below = document.querySelector("ytd-watch-flexy #below");
     if (below) {
       panel.classList.remove("vs-floating");
@@ -322,6 +341,7 @@
   document.addEventListener("yt-navigate-finish", () => setTimeout(onVideoChange, 300));
   let lastUrl = location.href;
   setInterval(() => {
+    applyTheme(); // follows YouTube's theme switch without a reload
     if (location.href !== lastUrl) {
       lastUrl = location.href;
       onVideoChange();

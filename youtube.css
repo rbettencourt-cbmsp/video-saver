@@ -1,33 +1,63 @@
-/* Video Saver panel on YouTube watch pages. Follows YouTube's light/dark theme variables. */
+/* Video Saver panel on YouTube watch pages.
+   Uses its own colours (YouTube's internal CSS variables aren't reliable here).
+   youtube.js adds .vs-dark when the page background is dark. */
 .vs-yt {
-  --vs-text: var(--yt-spec-text-primary, #0f0f0f);
-  --vs-muted: var(--yt-spec-text-secondary, #606060);
-  --vs-chip: var(--yt-spec-badge-chip-background, rgba(0, 0, 0, 0.05));
-  --vs-chip-hover: var(--yt-spec-button-chip-background-hover, rgba(0, 0, 0, 0.1));
-  --vs-line: var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.1));
+  --vs-text: #0f0f0f;
+  --vs-muted: #555;
+  --vs-chip: rgba(0, 0, 0, 0.06);
+  --vs-chip-hover: rgba(0, 0, 0, 0.12);
+  --vs-line: rgba(0, 0, 0, 0.14);
+  --vs-card: #f2f2f2;
+  --vs-field: #fff;
+  --vs-field-border: #c6c6c6;
+  --vs-code: rgba(0, 0, 0, 0.08);
+  --vs-link: #065fd4;
+  --vs-error: #c00;
+  --vs-ok: #1e7e34;
+  --vs-accent: #065fd4;
   font-family: "Roboto", "Arial", sans-serif;
   font-size: 14px;
+  line-height: 1.45;
   color: var(--vs-text);
   margin: 12px 0 4px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
+.vs-yt.vs-dark {
+  --vs-text: #f1f1f1;
+  --vs-muted: #b5b5b5;
+  --vs-chip: rgba(255, 255, 255, 0.1);
+  --vs-chip-hover: rgba(255, 255, 255, 0.2);
+  --vs-line: rgba(255, 255, 255, 0.22);
+  --vs-card: #272727;
+  --vs-field: #121212;
+  --vs-field-border: #4a4a4a;
+  --vs-code: rgba(255, 255, 255, 0.14);
+  --vs-link: #3ea6ff;
+  --vs-error: #ff8a80;
+  --vs-ok: #6fdc8c;
+}
+.vs-yt * { color: inherit; }
+
 .vs-yt.vs-floating {
   position: fixed;
   left: 16px;
   bottom: 16px;
   z-index: 2147483000;
-  background: var(--yt-spec-base-background, #fff);
+  background: var(--vs-card);
   border: 1px solid var(--vs-line);
   border-radius: 12px;
   padding: 10px 12px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
-  max-width: 420px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  max-width: 440px;
 }
 .vs-yt .vs-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* Buttons and fields */
 .vs-yt button, .vs-yt select, .vs-yt input {
   font: inherit;
+  font-size: 14px;
   color: var(--vs-text);
   border: none;
   border-radius: 18px;
@@ -37,49 +67,68 @@
 }
 .vs-yt button { cursor: pointer; font-weight: 500; }
 .vs-yt button:hover:not(:disabled), .vs-yt select:hover { background: var(--vs-chip-hover); }
-.vs-yt button:disabled { opacity: 0.65; cursor: default; }
-.vs-yt .vs-primary { background: #065fd4; color: #fff; display: inline-flex; align-items: center; gap: 6px; }
-.vs-yt .vs-primary:hover:not(:disabled) { background: #0556bf; }
+.vs-yt button:disabled { opacity: 0.6; cursor: default; }
+.vs-yt select { padding-right: 8px; cursor: pointer; color-scheme: light; }
+.vs-yt.vs-dark select { color-scheme: dark; }
+.vs-yt select option { color: var(--vs-text); background: var(--vs-field); }
+.vs-yt input {
+  border-radius: 8px;
+  min-width: 320px;
+  max-width: 100%;
+  background: var(--vs-field);
+  border: 1px solid var(--vs-field-border);
+}
+.vs-yt input:focus { outline: 2px solid var(--vs-accent); outline-offset: 0; }
+
+.vs-yt button.vs-primary { background: var(--vs-accent); color: #fff; display: inline-flex; align-items: center; gap: 6px; }
+.vs-yt button.vs-primary:hover:not(:disabled) { background: #0556bf; }
 .vs-yt .vs-primary svg { width: 20px; height: 20px; }
-.vs-yt select { padding-right: 8px; cursor: pointer; }
-.vs-yt .vs-link { background: transparent; color: #065fd4; padding: 0 6px; height: auto; }
-html[dark] .vs-yt .vs-link { color: #3ea6ff; }
-.vs-yt .vs-options { display: none; gap: 8px; flex-direction: column; padding: 8px 0 2px; }
+.vs-yt button.vs-link { background: transparent; color: var(--vs-link); padding: 0 6px; height: auto; }
+.vs-yt button.vs-link:hover:not(:disabled) { background: transparent; text-decoration: underline; }
+
+/* Options (file name / folder) */
+.vs-yt .vs-options { display: none; gap: 10px; flex-direction: column; padding: 4px 0 2px; }
 .vs-yt.vs-show-options .vs-options { display: flex; }
-.vs-yt label { font-size: 12px; color: var(--vs-muted); display: flex; flex-direction: column; gap: 4px; }
-.vs-yt input { border-radius: 8px; min-width: 280px; }
+.vs-yt label { font-size: 13px; font-weight: 500; color: var(--vs-muted); display: flex; flex-direction: column; gap: 4px; }
 .vs-yt .vs-folder { display: flex; align-items: center; gap: 8px; }
-.vs-yt .vs-folder span { font-size: 13px; color: var(--vs-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 360px; }
+.vs-yt .vs-folder span {
+  font-size: 14px; font-weight: 400; color: var(--vs-text); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; max-width: 420px; padding: 7px 10px; border-radius: 8px;
+  background: var(--vs-field); border: 1px solid var(--vs-field-border);
+}
+
+/* Progress and status */
 .vs-yt .vs-progress { display: none; height: 4px; background: var(--vs-line); border-radius: 2px; overflow: hidden; max-width: 520px; }
-.vs-yt .vs-progress > div { height: 100%; width: 0; background: #065fd4; transition: width 0.3s; }
+.vs-yt .vs-progress > div { height: 100%; width: 0; background: var(--vs-accent); transition: width 0.3s; }
 .vs-yt.vs-busy .vs-progress { display: block; }
 .vs-yt .vs-status { font-size: 14px; color: var(--vs-text); min-height: 20px; }
-.vs-yt .vs-status.vs-error { color: #c00; font-weight: 500; }
-html[dark] .vs-yt .vs-status.vs-error { color: #ff8a80; }
-.vs-yt select option { color: #0f0f0f; background: #fff; }
-.vs-yt .vs-status.vs-ok { color: #2ba640; }
+.vs-yt .vs-status.vs-error { color: var(--vs-error); font-weight: 500; }
+.vs-yt .vs-status.vs-ok { color: var(--vs-ok); }
 
 /* "?" setup help */
-.vs-yt .vs-help-btn { width: 36px; padding: 0; font-weight: 700; font-size: 16px; }
+.vs-yt button.vs-help-btn { width: 36px; padding: 0; font-weight: 700; font-size: 16px; }
 .vs-yt.vs-show-help button.vs-help-btn,
-.vs-yt.vs-show-help button.vs-help-btn:hover:not(:disabled) { background: #065fd4; color: #fff; }
-.vs-yt .vs-help { display: none; flex-direction: column; gap: 6px; max-width: 640px; padding: 12px 14px;
-  border-radius: 12px; background: var(--vs-chip); font-size: 14px; line-height: 1.5; }
+.vs-yt.vs-show-help button.vs-help-btn:hover:not(:disabled) { background: var(--vs-accent); color: #fff; }
+.vs-yt .vs-help {
+  display: none; flex-direction: column; gap: 6px; max-width: 660px; padding: 14px 16px;
+  border-radius: 12px; background: var(--vs-card); border: 1px solid var(--vs-line);
+  font-size: 14px; line-height: 1.5; color: var(--vs-text);
+}
 .vs-yt.vs-show-help .vs-help { display: flex; }
-.vs-yt .vs-help p { margin: 0; color: var(--vs-text); }
-.vs-yt .vs-help-title { font-weight: 600; font-size: 14px; }
-.vs-yt .vs-help-sub { font-weight: 500; margin-top: 2px; }
-.vs-yt .vs-help ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
-.vs-yt .vs-help a { color: #065fd4; }
-html[dark] .vs-yt .vs-help a { color: #3ea6ff; }
-.vs-yt .vs-help code { font-family: Consolas, "Courier New", monospace; font-size: 12px; background: var(--vs-line);
-  border-radius: 4px; padding: 1px 4px; user-select: all; }
-.vs-yt .vs-cmd { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+.vs-yt .vs-help p { margin: 0; }
+.vs-yt .vs-help-title { font-weight: 600; font-size: 15px; }
+.vs-yt .vs-help-sub { font-weight: 600; margin-top: 4px; }
+.vs-yt .vs-help ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; }
+.vs-yt .vs-help li { padding-left: 2px; }
+.vs-yt .vs-help a { color: var(--vs-link); }
+.vs-yt .vs-help code {
+  font-family: Consolas, "Courier New", monospace; font-size: 13px; background: var(--vs-code);
+  border-radius: 4px; padding: 1px 5px; user-select: all;
+}
+.vs-yt .vs-cmd { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 .vs-yt .vs-cmd code { padding: 6px 8px; }
-.vs-yt .vs-cmd button { height: 28px; padding: 0 12px; font-size: 12px; }
-.vs-yt .vs-help-state { font-size: 13px; font-weight: 600; }
-.vs-yt .vs-help-state.vs-ok { color: #2ba640; }
-.vs-yt .vs-help-state.vs-error { color: #cc0000; }
-html[dark] .vs-yt .vs-help-state.vs-error { color: #ff8a80; }
-html[dark] .vs-yt .vs-help-state.vs-ok { color: #6fdc8c; }
-.vs-yt .vs-help-note { color: var(--vs-muted) !important; font-size: 13px; }
+.vs-yt .vs-cmd button { height: 30px; padding: 0 14px; font-size: 13px; }
+.vs-yt .vs-help-state { font-size: 14px; font-weight: 600; }
+.vs-yt .vs-help-state.vs-ok { color: var(--vs-ok); }
+.vs-yt .vs-help-state.vs-error { color: var(--vs-error); }
+.vs-yt .vs-help-note { color: var(--vs-muted); font-size: 13px; }
