@@ -105,7 +105,7 @@ function safeFolder(folder) {
 }
 
 /** Builds the yt-dlp argument list. Every value is fixed or validated. */
-function buildArgs({ id, quality, folder, name, hasFfmpeg, ffmpegPath }) {
+function buildArgs({ id, quality, folder, name, hasFfmpeg, ffmpegPath, jsRuntime }) {
   // "%" is yt-dlp template syntax, so a literal "%" in the folder must be doubled.
   const output = path.join(folder.replace(/%/g, "%%"), `${name ? name : "%(title).150B [%(id)s]"}.%(ext)s`);
   const args = [
@@ -118,6 +118,8 @@ function buildArgs({ id, quality, folder, name, hasFfmpeg, ffmpegPath }) {
     "-o", output,
   ];
   if (ffmpegPath) args.push("--ffmpeg-location", ffmpegPath);
+  // Recent yt-dlp needs a JavaScript runtime for YouTube; Node (which runs this host) works.
+  if (jsRuntime) args.push("--js-runtimes", jsRuntime);
   if (name) args.splice(args.indexOf("--restrict-filenames"), 1); // keep the user's chosen spaces
 
   if (quality === "audio") {
@@ -142,6 +144,25 @@ function parseProgress(line) {
   const m = /^VSPROGRESS\s+([\d.]+)%\|([^|]*)\|([^|]*)\|(.*)$/.exec(line.trim());
   if (!m) return null;
   return { percent: Number(m[1]), speed: m[2].trim(), eta: m[3].trim(), format: m[4].trim() };
+}
+
+// --- yt-dlp version / JS runtime --------------------------------------------------
+
+let versionCache = null;
+function ytDlpVersion(cfg) {
+  if (versionCache) return versionCache;
+  versionCache = new Promise((resolve) =>
+    execFile(cfg.ytDlpPath, ["--version"], { windowsHide: true, timeout: 20000 }, (err, out) => resolve(err ? "" : out.trim()))
+  );
+  return versionCache;
+}
+
+/** "--js-runtimes" arrived in yt-dlp 2025.11; older versions would reject the option. */
+function jsRuntimeFor(version) {
+  const m = /^(\d{4})\.(\d{2})\.(\d{2})/.exec(version || "");
+  if (!m) return null;
+  const n = Number(m[1]) * 10000 + Number(m[2]) * 100 + Number(m[3]);
+  return n >= 20251101 ? `node:${process.execPath}` : null;
 }
 
 // --- ffmpeg discovery --------------------------------------------------------------
@@ -212,12 +233,7 @@ function shutdown() {
 
 async function ping(cfg, reqId) {
   const exists = fs.existsSync(cfg.ytDlpPath);
-  let version = "";
-  if (exists) {
-    version = await new Promise((resolve) =>
-      execFile(cfg.ytDlpPath, ["--version"], { windowsHide: true, timeout: 20000 }, (err, out) => resolve(err ? "" : out.trim()))
-    );
-  }
+  const version = exists ? await ytDlpVersion(cfg) : "";
   const ff = await findFfmpeg(cfg);
   send({
     type: "pong", reqId, ok: exists && !!version, ytDlpPath: cfg.ytDlpPath, ytDlpVersion: version,
@@ -271,7 +287,8 @@ async function download(cfg, msg) {
   if (!fs.existsSync(cfg.ytDlpPath)) return fail(`yt-dlp.exe not found at ${cfg.ytDlpPath}. Edit native-host\\config.json.`);
 
   const ff = await findFfmpeg(cfg);
-  const args = buildArgs({ id, quality: msg.quality, folder, name, hasFfmpeg: ff.found, ffmpegPath: ff.location });
+  const jsRuntime = jsRuntimeFor(await ytDlpVersion(cfg));
+  const args = buildArgs({ id, quality: msg.quality, folder, name, hasFfmpeg: ff.found, ffmpegPath: ff.location, jsRuntime });
   log("download", jobId, id, msg.quality, folder);
   send({ type: "started", jobId, videoId: id, ffmpeg: ff.found });
 
@@ -288,6 +305,8 @@ async function download(cfg, msg) {
       if (p.percent < lastPercent - 50) stage++;
       lastPercent = p.percent;
       send({ type: "progress", jobId, ...p, stage });
+      // yt-dlp's own "[Merger]" lines are hidden by --print, so announce the finishing step here.
+      if (p.percent >= 100) send({ type: "status", jobId, message: "Finishing (merging/converting)…" });
       return;
     }
     const f = /^VSFILE (.+)$/.exec(line.trim());
@@ -364,4 +383,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { youtubeId, safeName, safeFolder, buildArgs, parseProgress, QUALITIES };
+module.exports = { youtubeId, safeName, safeFolder, buildArgs, parseProgress, jsRuntimeFor, QUALITIES };

@@ -50,7 +50,7 @@ Options: **Best available**, **1080p**, **720p**, **480p**, **Audio only (MP3)**
 - [Node.js](https://nodejs.org) (runs the helper)
 - `yt-dlp.exe`. By default the helper uses the one in this folder
 - `ffmpeg` on PATH or next to `yt-dlp.exe`. It's needed for 1080p (video and audio are merged) and for MP3. Without it, the helper falls back to single-file formats (often 360p) and M4A audio
-- An **up-to-date** yt-dlp. YouTube changes often, and old versions fail with errors like "Precondition check failed". Update with:
+- An **up-to-date** yt-dlp. YouTube changes often, and old versions fail with errors like "Precondition check failed". Since late 2025, yt-dlp also needs a JavaScript runtime for YouTube. The helper passes `--js-runtimes node:<your node.exe>` automatically when the yt-dlp version supports it. Update with:
 
 ```powershell
 .\yt-dlp.exe -U
