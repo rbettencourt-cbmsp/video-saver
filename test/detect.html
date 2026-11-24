@@ -1,0 +1,46 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>detect test</title>
+<!-- Checks detect.js finds players from markup and page data without playback. -->
+<div style="display:none">
+  <iframe data-src="https://fast.wistia.net/embed/iframe/abc123defg?videoFoam=true"></iframe>
+  <iframe data-src="https://player.vimeo.com/video/76979871?h=8272103f6e&amp;badge=0"></iframe>
+  <iframe data-src="https://www.loom.com/embed/0123456789abcdef0123456789abcdef"></iframe>
+  <iframe data-src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"></iframe>
+  <div class="wistia_embed wistia_async_zyx987wvut videoFoam=true"></div>
+  <wistia-player media-id="mmm111nnn2"></wistia-player>
+  <video src="https://media.example.test/clip.mp4"></video>
+  <video><source src="blob:https://x.test/abc"></video>
+</div>
+<script id="__NEXT_DATA__" type="application/json">{"props":{"lesson":{"videoLink":"https:\/\/www.loom.com\/share\/fedcba9876543210fedcba9876543210?sid=1","alt":"https:\/\/vimeo.com\/123456789\/abcdef1234"}}}</script>
+<pre id="out"></pre>
+<script>
+  // Set iframe URLs without letting them load anything.
+  for (const f of document.querySelectorAll("iframe[data-src]")) {
+    Object.defineProperty(f, "src", { get: () => f.dataset.src });
+    f.setAttribute("src", "about:blank");
+  }
+</script>
+<script src="../detect.js"></script>
+<script>
+  const out = document.getElementById("out");
+  const items = globalThis.videoSaverDetect();
+  const got = items.map((i) => i.type === "url" ? `url:${i.url}` : i.type === "youtube" ? `youtube:${i.embedId}` : `${i.kind}:${i.embedId}${i.hash ? "#" + i.hash : ""}`).sort();
+  const want = [
+    "url:https://media.example.test/clip.mp4",
+    "wistia:abc123defg",
+    "wistia:zyx987wvut",
+    "wistia:mmm111nnn2",
+    "vimeo:76979871#8272103f6e",
+    "vimeo:123456789#abcdef1234",
+    "loom:0123456789abcdef0123456789abcdef",
+    "loom:fedcba9876543210fedcba9876543210",
+    "youtube:dQw4w9WgXcQ",
+  ].sort();
+  const missing = want.filter((w) => !got.includes(w));
+  const extra = got.filter((g) => !want.includes(g));
+  out.textContent = `found:\n  ${got.join("\n  ")}\nmissing: ${missing.join(", ") || "none"}\nextra: ${extra.join(", ") || "none"}\n`;
+  const result = !missing.length && !extra.length ? "PASS" : "FAIL";
+  out.textContent += `RESULT: ${result}`;
+  parent.postMessage({ scenario: "detect", result, detail: out.textContent }, "*");
+</script>

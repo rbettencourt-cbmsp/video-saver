@@ -87,7 +87,7 @@ function buildTrack(levels, rep, periodSeconds, manifestUrl) {
           r = Math.ceil((endTime - time) / d) - 1;
         }
         for (let k = 0; k <= r; k++) {
-          segments.push({ url: abs(fillTemplate(a.media, { ...vars, Number: number++, Time: time })) });
+          segments.push({ url: abs(fillTemplate(a.media, { ...vars, Number: number++, Time: time })), duration: d / timescale });
           time += d;
         }
       });
@@ -96,11 +96,11 @@ function buildTrack(levels, rep, periodSeconds, manifestUrl) {
       if (!dur || !periodSeconds) throw new Error("DASH template has no timeline or duration.");
       const count = Math.ceil((periodSeconds * timescale) / dur - 1e-9);
       for (let k = 0; k < count; k++) {
-        segments.push({ url: abs(fillTemplate(a.media, { ...vars, Number: number, Time: (number - num(a.startNumber, 1)) * dur })) });
+        segments.push({ url: abs(fillTemplate(a.media, { ...vars, Number: number, Time: (number - num(a.startNumber, 1)) * dur })), duration: dur / timescale });
         number++;
       }
       // Durations are often rounded down; try one more segment and skip it if missing.
-      segments.push({ url: abs(fillTemplate(a.media, { ...vars, Number: number, Time: (number - num(a.startNumber, 1)) * dur })), optional: true });
+      segments.push({ url: abs(fillTemplate(a.media, { ...vars, Number: number, Time: (number - num(a.startNumber, 1)) * dur })), duration: dur / timescale, optional: true });
     }
     return { init, segments, encrypted, ext };
   }
@@ -111,15 +111,17 @@ function buildTrack(levels, rep, periodSeconds, manifestUrl) {
     if (list.initEl) {
       init = { url: abs(list.initEl.getAttribute("sourceURL") || base), ...parseRange(list.initEl.getAttribute("range")) };
     }
+    const segDur = num(list.attrs.duration, 0) / num(list.attrs.timescale, 1);
     const segments = list.urls.map((u) => ({
       url: abs(u.getAttribute("media") || base),
+      duration: segDur,
       ...parseRange(u.getAttribute("mediaRange")),
     }));
     return { init, segments, encrypted, ext };
   }
 
   // SegmentBase or nothing: the representation is one self-contained file.
-  return { init: null, segments: [{ url: base }], encrypted, ext };
+  return { init: null, segments: [{ url: base, duration: periodSeconds || 0 }], encrypted, ext };
 }
 
 function repKind(adaptation, rep) {
@@ -133,7 +135,7 @@ function repKind(adaptation, rep) {
   return null;
 }
 
-function parseMpdDoc(doc, manifestUrl) {
+function parseMpdDoc(doc, manifestUrl, quality = null) {
   const mpd = doc.documentElement;
   if (!mpd || mpd.localName !== "MPD") throw new Error("Not a DASH manifest");
   if (mpd.getAttribute("type") === "dynamic") throw new Error("Live DASH streams are not supported.");
@@ -144,28 +146,50 @@ function parseMpdDoc(doc, manifestUrl) {
   const periodSeconds =
     parseIsoDuration(period.getAttribute("duration")) ?? parseIsoDuration(mpd.getAttribute("mediaPresentationDuration"));
 
-  const best = { video: null, audio: null };
+  // Every representation, best first: highest resolution, then bitrate.
+  const reps = { video: [], audio: [] };
   for (const as of kids(period, "AdaptationSet")) {
     for (const rep of kids(as, "Representation")) {
       const kind = repKind(as, rep);
       if (!kind) continue;
-      const score = num(rep.getAttribute("bandwidth"), 0) + num(rep.getAttribute("height"), 0) * 1e9;
-      if (!best[kind] || score > best[kind].score) best[kind] = { as, rep, score };
+      reps[kind].push({
+        as,
+        rep,
+        height: num(rep.getAttribute("height") ?? as.getAttribute("height"), 0),
+        width: num(rep.getAttribute("width") ?? as.getAttribute("width"), 0),
+        bandwidth: num(rep.getAttribute("bandwidth"), 0),
+      });
     }
   }
-  if (!best.video && !best.audio) throw new Error("DASH manifest has no audio or video.");
+  for (const list of Object.values(reps)) list.sort((a, b) => b.height - a.height || b.bandwidth - a.bandwidth);
+  if (!reps.video.length && !reps.audio.length) throw new Error("DASH manifest has no audio or video.");
+
+  // quality: { bandwidth } for an exact pick, or { height } for "this tall or smaller".
+  let video = reps.video[0] || null;
+  if (video && quality) {
+    video =
+      (quality.bandwidth && reps.video.find((r) => r.bandwidth === quality.bandwidth)) ||
+      (quality.height && reps.video.find((r) => r.height <= quality.height)) ||
+      (quality.height ? reps.video.at(-1) : video);
+  }
+  const audio = reps.audio[0] || null;
 
   const track = (b) => b && buildTrack([mpd, period, b.as, b.rep], b.rep, periodSeconds, manifestUrl);
-  const info = best.video
-    ? [best.video.rep.getAttribute("width"), best.video.rep.getAttribute("height")].filter(Boolean).join("x")
-    : "";
-  return { video: track(best.video), audio: track(best.audio), resolution: info, multiPeriod: periods.length > 1 };
+  return {
+    video: track(video),
+    audio: track(audio),
+    height: video?.height || 0,
+    resolution: video && video.width && video.height ? `${video.width}x${video.height}` : "",
+    qualities: reps.video.map(({ height, width, bandwidth }) => ({ height, width, bandwidth })),
+    duration: periodSeconds || 0,
+    multiPeriod: periods.length > 1,
+  };
 }
 
-function parseMpd(text, manifestUrl) {
+function parseMpd(text, manifestUrl, quality) {
   const doc = new DOMParser().parseFromString(text, "application/xml");
   if (doc.getElementsByTagName("parsererror").length) throw new Error("DASH manifest is not valid XML.");
-  return parseMpdDoc(doc, manifestUrl);
+  return parseMpdDoc(doc, manifestUrl, quality);
 }
 
 if (typeof module !== "undefined") module.exports = { parseMpd, parseMpdDoc, parseIsoDuration, fillTemplate };

@@ -1,0 +1,132 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>chunked merge test</title>
+<!-- Tests mux.js chunked merging: a 20 s stream (separate video + audio) is stored on disk
+     (OPFS) and merged with a tiny chunk size so it is split into many parts. The result must
+     match a one-part merge: same duration, every video frame and audio packet, no decode errors. -->
+<pre id="out"></pre>
+<script src="../common.js"></script>
+<script src="../hls.js"></script>
+<script src="../dash.js"></script>
+<script type="module">
+import { FFmpeg } from "../vendor/ffmpeg/index.js";
+import { mergeToMp4 } from "../mux.js";
+import { createScratch, removeScratch } from "../store.js";
+
+const out = document.getElementById("out");
+const say = (s) => (out.textContent += s + "\n");
+const core = { coreURL: new URL("../vendor/core/ffmpeg-core.js", import.meta.url).href,
+               wasmURL: new URL("../vendor/core/ffmpeg-core.wasm", import.meta.url).href };
+const SECONDS = 20;
+const VIN = ["-f", "lavfi", "-i", `testsrc=size=320x240:rate=25:duration=${SECONDS}`];
+const AIN = ["-f", "lavfi", "-i", `sine=frequency=440:duration=${SECONDS}`];
+const VENC = ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-g", "50"];
+const AENC = ["-c:a", "aac"];
+
+async function fixture(format) {
+  const ff = new FFmpeg();
+  await ff.load(core);
+  if (format === "ts") {
+    await ff.exec([...VIN, ...VENC, "-f", "hls", "-hls_time", "2", "-hls_list_size", "0", "-hls_segment_filename", "v%d.ts", "v.m3u8"]);
+    await ff.exec([...AIN, ...AENC, "-f", "hls", "-hls_time", "2", "-hls_list_size", "0", "-hls_segment_filename", "a%d.ts", "a.m3u8"]);
+  } else {
+    await ff.exec([...VIN, ...AIN, "-map", "0:v", "-map", "1:a", ...VENC, ...AENC,
+                   "-f", "dash", "-seg_duration", "2", "-use_template", "1", "-use_timeline", "1", "out.mpd"]);
+  }
+  const files = new Map();
+  for (const { name, isDir } of await ff.listDir("/")) {
+    if (!isDir && /\.(ts|m3u8|mpd|m4s)$/.test(name)) files.set(name, await ff.readFile(name));
+  }
+  ff.terminate();
+  const get = (url) => files.get(new URL(url).pathname.slice(1));
+  const base = "https://x.test/";
+  let tracks;
+  if (format === "ts") {
+    const pl = (n) => parsePlaylist(new TextDecoder().decode(files.get(n)), base + n);
+    tracks = { video: { ...pl("v.m3u8"), ext: "ts" }, audio: { ...pl("a.m3u8"), ext: "ts" } };
+  } else {
+    const mpd = parseMpd(new TextDecoder().decode(files.get("out.mpd")), base + "out.mpd");
+    tracks = { video: mpd.video, audio: mpd.audio };
+  }
+  // Store each track on disk exactly like the saver does.
+  const stored = {};
+  for (const [kind, t] of Object.entries(tracks)) {
+    const w = await createScratch(`test-${format}-${kind}`);
+    let initSize = 0;
+    if (t.init) {
+      const b = get(t.init.url);
+      await w.append(b);
+      initSize = b.length;
+    }
+    const segs = [];
+    for (const s of t.segments) {
+      const b = get(s.url);
+      if (!b) continue;
+      segs.push({ offset: w.size, size: b.length, duration: s.duration });
+      await w.append(b);
+    }
+    await w.close();
+    stored[kind] = { file: await w.file(), segs, initSize, ext: t.ext };
+  }
+  return stored;
+}
+
+async function merge(tracks, chunkBytes) {
+  const parts = [];
+  const statuses = [];
+  await mergeToMp4(tracks, { append: async (b) => parts.push(b.slice()) }, { chunkBytes, onStatus: (m) => statuses.push(m) });
+  return { blob: new Blob(parts), parts: statuses.filter((s) => /part/.test(s)).length || 1 };
+}
+
+async function inspect(blob) {
+  const ff = new FFmpeg();
+  const lines = [];
+  ff.on("log", ({ message }) => lines.push(message));
+  await ff.load(core);
+  await ff.writeFile("r.mp4", new Uint8Array(await blob.arrayBuffer()));
+  await ff.exec(["-i", "r.mp4"]);
+  const info = lines.filter((l) => /Duration|Stream #/.test(l)).join("\n");
+  lines.length = 0;
+  await ff.exec(["-v", "error", "-i", "r.mp4", "-f", "null", "-"]); // full decode
+  const errors = lines.filter((l) => l.trim() && !/^frame=|^size=|Aborted/.test(l));
+  const packets = async (map) => {
+    await ff.exec(["-i", "r.mp4", "-map", map, "-c", "copy", "-f", "framecrc", "-y", "out.crc"]);
+    const txt = new TextDecoder().decode(await ff.readFile("out.crc"));
+    return txt.split("\n").filter((l) => /^0,/.test(l)).length;
+  };
+  const frames = await packets("0:v");
+  const audioPackets = await packets("0:a");
+  ff.terminate();
+  const duration = /Duration: (\d+):(\d+):([\d.]+)/.exec(info);
+  return { info, errors, frames, audioPackets,
+           seconds: duration ? +duration[1] * 3600 + +duration[2] * 60 + +duration[3] : 0 };
+}
+
+let allOk = true;
+try {
+  for (const format of ["ts", "fmp4"]) {
+    const tracks = await fixture(format);
+    say(`[${format}] video ${tracks.video.segs.length} segs ${tracks.video.file.size} B, audio ${tracks.audio.segs.length} segs ${tracks.audio.file.size} B`);
+    const one = await merge(tracks, 1e12);
+    const many = await merge(tracks, 40 * 1024);
+    const r1 = await inspect(one.blob);
+    const rN = await inspect(many.blob);
+    say(`  one part : ${r1.seconds}s, ${r1.frames} frames, ${r1.audioPackets} audio pkts, ${r1.errors.length} decode errors`);
+    say(`  ${many.parts} parts : ${rN.seconds}s, ${rN.frames} frames, ${rN.audioPackets} audio pkts, ${rN.errors.length} decode errors`);
+    say(rN.info.split("\n").map((l) => "    " + l.trim()).join("\n"));
+    if (rN.errors.length) say("    errors: " + rN.errors.slice(0, 5).join(" | "));
+    const ok = many.parts > 2 && rN.frames === SECONDS * 25 && rN.frames === r1.frames &&
+      rN.audioPackets === r1.audioPackets && Math.abs(rN.seconds - r1.seconds) < 0.05 && Math.abs(rN.seconds - SECONDS) < 0.5 && !rN.errors.length &&
+      /Video: h264/.test(rN.info) && /Audio: aac/.test(rN.info);
+    say(`  ${ok ? "ok" : "MISMATCH"}`);
+    allOk &&= ok;
+    await removeScratch(`test-${format}-video`);
+    await removeScratch(`test-${format}-audio`);
+  }
+  say(`RESULT: ${allOk ? "PASS" : "FAIL"}`);
+  parent.postMessage({ scenario: "chunks", result: allOk ? "PASS" : "FAIL", detail: out.textContent }, "*");
+} catch (e) {
+  say("RESULT: ERROR " + (e.stack || e));
+  parent.postMessage({ scenario: "chunks", result: "ERROR", detail: out.textContent }, "*");
+}
+</script>

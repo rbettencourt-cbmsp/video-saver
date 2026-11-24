@@ -1,5 +1,5 @@
 // Minimal HLS playlist parser (RFC 8216 subset). No dependencies.
-// Segments are { url, start?, end? } where start/end are inclusive byte offsets
+// Segments are { url, duration, start?, end? }; start/end are inclusive byte offsets
 // (present only for #EXT-X-BYTERANGE streams).
 
 const hlsResolve = typeof resolveUrl === "function" ? resolveUrl : require("./common.js").resolveUrl;
@@ -33,6 +33,7 @@ function parsePlaylist(text, baseUrl) {
   let encrypted = false;
   let pendingVariant = null;
   let pendingRange = null;
+  let pendingDuration = 0;
   const lastEnd = new Map(); // url -> next offset, for ranges without "@offset"
 
   for (const line of lines) {
@@ -61,6 +62,8 @@ function parsePlaylist(text, baseUrl) {
           Object.assign(init, { start, end: start + r.length - 1 });
         }
       }
+    } else if (line.startsWith("#EXTINF:")) {
+      pendingDuration = parseFloat(line.slice(8)) || 0;
     } else if (line.startsWith("#EXT-X-BYTERANGE:")) {
       pendingRange = parseByteRange(line.slice(17));
     } else if (!line.startsWith("#")) {
@@ -69,7 +72,8 @@ function parsePlaylist(text, baseUrl) {
         pendingVariant = null;
         continue;
       }
-      const seg = { url: abs(line) };
+      const seg = { url: abs(line), duration: pendingDuration };
+      pendingDuration = 0;
       if (pendingRange) {
         const start = pendingRange.offset ?? lastEnd.get(seg.url) ?? 0;
         seg.start = start;

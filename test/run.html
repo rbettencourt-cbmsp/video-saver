@@ -8,15 +8,22 @@
 <div id="summary">running…</div>
 <div id="results"></div>
 <script>
-const SCENARIOS = ["hls-master", "hls-byterange", "dash-timeline", "dash-number", "dash-seglist",
-                   "dash-baseurl", "file-referrer", "dash-drm"];
+const JOB_SCENARIOS = ["hls-master", "hls-chunked", "hls-quality", "hls-byterange", "dash-timeline", "dash-number",
+  "dash-quality", "dash-seglist", "dash-baseurl", "file-referrer", "wistia-embed", "dash-drm", "cancel"];
+const PAGES = [
+  ...JOB_SCENARIOS.map((s) => ({ name: s, src: `job.html?scenario=${s}` })),
+  { name: "chunks", src: "chunks.html" },
+  { name: "detect", src: "detect.html" },
+  { name: "queue", src: "queue.html" },
+];
+const only = new URLSearchParams(location.search).get("only");
 const results = document.getElementById("results");
 const tally = {};
 
-function runOne(name) {
+function runOne({ name, src }) {
   return new Promise((resolve) => {
     const frame = document.createElement("iframe");
-    const timer = setTimeout(() => done({ scenario: name, result: "ERROR", detail: "timed out" }), 120000);
+    const timer = setTimeout(() => done({ scenario: name, result: "ERROR", detail: "timed out" }), 180000);
     function done(msg) {
       clearTimeout(timer);
       removeEventListener("message", onMsg);
@@ -25,17 +32,17 @@ function runOne(name) {
     }
     function onMsg(e) { if (e.data?.scenario === name) done(e.data); }
     addEventListener("message", onMsg);
-    frame.src = `saver.html?scenario=${name}`;
+    frame.src = src;
     document.body.append(frame);
   });
 }
 
 (async () => {
-  for (const name of SCENARIOS) {
-    const r = await runOne(name);
+  for (const page of PAGES.filter((p) => !only || only.split(",").includes(p.name))) {
+    const r = await runOne(page);
     tally[r.result] = (tally[r.result] || 0) + 1;
     const el = document.createElement("div");
-    el.innerHTML = `<h3 class="${r.result}">${r.result} — ${name}</h3>`;
+    el.innerHTML = `<h3 class="${r.result}">${r.result} — ${page.name}</h3>`;
     const pre = document.createElement("pre");
     pre.textContent = r.detail;
     el.append(pre);

@@ -8,7 +8,7 @@ const { execFileSync } = require("node:child_process");
 
 const root = path.join(__dirname, "..");
 const files = fs.readdirSync(root).filter((f) => /\.(js|html|css|json|md)$/.test(f));
-const modules = new Set(["saver.js", "mux.js"]);
+const modules = new Set(["mux.js", "job.js", "store.js", "resolvers.js", "downloads.js"]);
 
 for (const f of files) {
   test(`${f} is valid UTF-8`, () => {

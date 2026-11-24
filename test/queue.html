@@ -1,0 +1,70 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>queue test</title>
+<!-- Loads the real downloads.js with job.js swapped for test/fake-job.js and chrome.* stubbed.
+     Checks: at most 3 jobs run at once, all jobs finish, failures and cancellation are recorded. -->
+<script type="importmap">{ "imports": { "/job.js": "/test/fake-job.js" } }</script>
+<span id="summary"></span><button id="clear">Clear</button><ul id="list"></ul>
+<pre id="out"></pre>
+<script>
+  // --- chrome.* stubs: session storage + the background's job handlers --------------
+  const store = { jobs: [] };
+  const listeners = [];
+  const clone = (v) => JSON.parse(JSON.stringify(v));
+  const setJobs = (jobs) => {
+    store.jobs = jobs;
+    listeners.forEach((l) => l({ jobs: { newValue: clone(jobs) } }, "session"));
+  };
+  const mutate = (fn) => {
+    const jobs = clone(store.jobs);
+    fn(jobs);
+    setJobs(jobs);
+  };
+  const handlers = {
+    updateJob: ({ id, patch }) => mutate((jobs) => Object.assign(jobs.find((j) => j.id === id) || {}, patch)),
+    cancelJob: ({ id }) => mutate((jobs) => {
+      const j = jobs.find((x) => x.id === id);
+      if (j.status === "queued") Object.assign(j, { status: "cancelled" });
+      else if (j.status === "running") j.status = "cancelling";
+    }),
+    clearFinished: () => {},
+  };
+  window.chrome = {
+    storage: {
+      session: { get: async (k) => ({ [k]: clone(store[k]) }), set: async (o) => setJobs(o.jobs) },
+      onChanged: { addListener: (l) => listeners.push(l) },
+    },
+    runtime: { sendMessage: async (m) => handlers[m.type]?.(m) },
+    downloads: { show() {} },
+  };
+  const names = ["a", "b", "fails", "d", "e", "cancel-me", "g"];
+  store.jobs = names.map((n, i) => ({ id: `j${i}`, name: n, status: "queued", url: "x", kind: "hls" }));
+</script>
+<script type="module">
+  const out = document.getElementById("out");
+  await import("../downloads.js");
+
+  // Cancel "cancel-me" once it is running.
+  const cancelId = store.jobs.find((j) => j.name === "cancel-me").id;
+  const deadline = Date.now() + 20000;
+  let cancelled = false;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 50));
+    const j = store.jobs.find((x) => x.id === cancelId);
+    if (!cancelled && j.status === "running") {
+      cancelled = true;
+      chrome.runtime.sendMessage({ type: "cancelJob", id: cancelId });
+    }
+    if (store.jobs.every((x) => ["done", "error", "cancelled"].includes(x.status))) break;
+  }
+  const q = globalThis.__queueTest;
+  const status = Object.fromEntries(store.jobs.map((j) => [j.name, j.status]));
+  out.textContent = `max running at once: ${q.maxActive}\nstatuses: ${JSON.stringify(status)}\n` +
+    `error text: ${store.jobs.find((j) => j.name === "fails").error}\nrendered rows: ${document.querySelectorAll("#list li").length}\n`;
+  const ok = q.maxActive === 3 && status["fails"] === "error" && status["cancel-me"] === "cancelled" &&
+    names.filter((n) => !["fails", "cancel-me"].includes(n)).every((n) => status[n] === "done") &&
+    document.querySelectorAll("#list li").length === names.length;
+  const result = ok ? "PASS" : "FAIL";
+  out.textContent += `RESULT: ${result}`;
+  parent.postMessage({ scenario: "queue", result, detail: out.textContent }, "*");
+</script>
