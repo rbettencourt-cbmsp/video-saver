@@ -1,0 +1,367 @@
+#!/usr/bin/env node
+// Video Saver native messaging host: a narrow bridge from the extension to yt-dlp.exe.
+//
+// Chrome starts this process (via host.bat) when the extension calls
+// chrome.runtime.connectNative("com.videosaver.ytdlp"). Messages are JSON framed with
+// a 4-byte little-endian length on stdin/stdout.
+//
+// Security model:
+//  * Chrome only lets extensions listed in the host manifest's allowed_origins connect;
+//    this host also checks the caller origin Chrome passes as the first argument.
+//  * Only these commands exist: ping, pickFolder, download, cancel. There is no way
+//    to pass arbitrary arguments or run other programs.
+//  * The video URL is reduced to an 11-character YouTube video ID and rebuilt as
+//    https://www.youtube.com/watch?v=<id>. Quality is one of a fixed list. The folder
+//    must be an existing absolute directory; the filename is sanitised (no paths,
+//    no template syntax). yt-dlp runs with --ignore-config and without a shell.
+//  * Nothing here bypasses DRM, logins or access controls: no cookies are passed, so
+//    yt-dlp only sees what any signed-out viewer can see.
+
+"use strict";
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
+const { spawn, execFile } = require("node:child_process");
+
+const HOST_DIR = __dirname;
+// VS_HOST_CONFIG is for the test suite; Chrome starts the host without it.
+const CONFIG_PATH = process.env.VS_HOST_CONFIG || path.join(HOST_DIR, "config.json");
+const LOG_PATH = path.join(HOST_DIR, "host.log");
+
+// --- Config ------------------------------------------------------------------
+
+function loadConfig() {
+  let cfg = {};
+  try {
+    cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+  } catch {}
+  return {
+    ytDlpPath: cfg.ytDlpPath || path.join(HOST_DIR, "..", "yt-dlp.exe"),
+    ffmpegPath: cfg.ffmpegPath || "", // optional: folder or ffmpeg.exe; otherwise PATH is used
+    allowedOrigins: Array.isArray(cfg.allowedOrigins) ? cfg.allowedOrigins : [],
+    defaultFolder: cfg.defaultFolder || path.join(os.homedir(), "Downloads", "Video Saver"),
+  };
+}
+
+function log(...args) {
+  try {
+    fs.appendFileSync(LOG_PATH, `[${new Date().toISOString()}] ${args.join(" ")}\n`);
+  } catch {}
+}
+
+// --- Validation (exported for tests) ---------------------------------------------
+
+const QUALITIES = ["best", "1080", "720", "480", "audio"];
+
+/** Returns the 11-char video ID from a YouTube URL, or null. */
+function youtubeId(input) {
+  let u;
+  try {
+    u = new URL(String(input));
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+  const host = u.hostname.toLowerCase();
+  let id = null;
+  if (["www.youtube.com", "youtube.com", "m.youtube.com", "music.youtube.com"].includes(host)) {
+    if (u.pathname === "/watch") id = u.searchParams.get("v");
+    else {
+      const m = /^\/(?:shorts|live|embed)\/([^/?#]+)/.exec(u.pathname);
+      if (m) id = m[1];
+    }
+  } else if (host === "youtu.be") {
+    id = u.pathname.slice(1).split("/")[0];
+  }
+  return id && /^[A-Za-z0-9_-]{11}$/.test(id) ? id : null;
+}
+
+/** Makes a safe file name (no folders, no yt-dlp template syntax). Empty → null. */
+function safeName(name) {
+  const cleaned = String(name || "")
+    .replace(/\.(mp4|mkv|webm|mp3|m4a)$/i, "")
+    .replace(/[\\/:*?"<>|\u0000-\u001f%]+/g, " ")
+    .replace(/(^|\s)\.+(?=\s|$)/g, " ") // leftover ".." pieces
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\.+|\.+$/g, "")
+    .slice(0, 150);
+  if (!cleaned) return null;
+  // Windows reserved device names
+  if (/^(con|prn|aux|nul|com\d|lpt\d)$/i.test(cleaned)) return `${cleaned}_`;
+  return cleaned;
+}
+
+/** Validates an absolute, existing directory. */
+function safeFolder(folder) {
+  if (typeof folder !== "string" || !folder || folder.length > 400) return null;
+  if (!path.isAbsolute(folder) || folder.startsWith("\\\\")) return null; // no relative or UNC paths
+  const resolved = path.resolve(folder);
+  try {
+    return fs.statSync(resolved).isDirectory() ? resolved : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Builds the yt-dlp argument list. Every value is fixed or validated. */
+function buildArgs({ id, quality, folder, name, hasFfmpeg, ffmpegPath }) {
+  // "%" is yt-dlp template syntax, so a literal "%" in the folder must be doubled.
+  const output = path.join(folder.replace(/%/g, "%%"), `${name ? name : "%(title).150B [%(id)s]"}.%(ext)s`);
+  const args = [
+    "--ignore-config", "--no-exec", "--no-playlist", "--no-cookies-from-browser",
+    "--newline", "--progress", "--no-colors", "--restrict-filenames",
+    "--progress-template", "download:VSPROGRESS %(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(info.format_id)s",
+    "--print", "after_move:VSFILE %(filepath)s",
+    "--no-simulate",
+    "--no-overwrites", "--windows-filenames",
+    "-o", output,
+  ];
+  if (ffmpegPath) args.push("--ffmpeg-location", ffmpegPath);
+  if (name) args.splice(args.indexOf("--restrict-filenames"), 1); // keep the user's chosen spaces
+
+  if (quality === "audio") {
+    if (hasFfmpeg) args.push("-f", "bestaudio/best", "-x", "--audio-format", "mp3", "--audio-quality", "0");
+    else args.push("-f", "bestaudio[ext=m4a]/bestaudio");
+  } else {
+    const h = quality === "best" ? "" : `[height<=${quality}]`;
+    if (hasFfmpeg) {
+      args.push("-f", `bestvideo${h}+bestaudio/best${h}`, "--merge-output-format", "mp4");
+      // Prefer MP4-friendly codecs (H.264/AAC) when the quality is the same.
+      args.push("-S", "res,vcodec:h264,acodec:m4a");
+    } else {
+      args.push("-f", `best${h}[acodec!=none][vcodec!=none]/best${h}`);
+    }
+  }
+  args.push("--", `https://www.youtube.com/watch?v=${id}`);
+  return args;
+}
+
+/** Parses a yt-dlp progress line (from our --progress-template). */
+function parseProgress(line) {
+  const m = /^VSPROGRESS\s+([\d.]+)%\|([^|]*)\|([^|]*)\|(.*)$/.exec(line.trim());
+  if (!m) return null;
+  return { percent: Number(m[1]), speed: m[2].trim(), eta: m[3].trim(), format: m[4].trim() };
+}
+
+// --- ffmpeg discovery --------------------------------------------------------------
+
+function findFfmpeg(cfg) {
+  return new Promise((resolve) => {
+    if (cfg.ffmpegPath) {
+      const p = fs.existsSync(cfg.ffmpegPath) ? cfg.ffmpegPath : "";
+      return resolve(p ? { found: true, location: p } : { found: false });
+    }
+    const beside = path.join(path.dirname(cfg.ytDlpPath), "ffmpeg.exe");
+    if (fs.existsSync(beside)) return resolve({ found: true, location: "" }); // yt-dlp finds it itself
+    execFile("where", ["ffmpeg"], { windowsHide: true }, (err, stdout) => {
+      resolve(!err && stdout.trim() ? { found: true, location: "" } : { found: false });
+    });
+  });
+}
+
+// --- Native messaging framing ---------------------------------------------------------
+
+function send(msg) {
+  const body = Buffer.from(JSON.stringify(msg), "utf8");
+  const header = Buffer.alloc(4);
+  header.writeUInt32LE(body.length, 0);
+  process.stdout.write(Buffer.concat([header, body]));
+}
+
+function readMessages(onMessage) {
+  let buf = Buffer.alloc(0);
+  process.stdin.on("data", (chunk) => {
+    buf = Buffer.concat([buf, chunk]);
+    while (buf.length >= 4) {
+      const len = buf.readUInt32LE(0);
+      if (len > 1024 * 1024) {
+        log("message too large; exiting");
+        process.exit(1);
+      }
+      if (buf.length < 4 + len) break;
+      const body = buf.subarray(4, 4 + len);
+      buf = buf.subarray(4 + len);
+      let msg;
+      try {
+        msg = JSON.parse(body.toString("utf8"));
+      } catch {
+        send({ type: "error", error: "Bad message." });
+        continue;
+      }
+      onMessage(msg);
+    }
+  });
+  process.stdin.on("end", () => shutdown());
+}
+
+// --- Commands ------------------------------------------------------------------------
+
+const children = new Map(); // jobId -> ChildProcess
+
+function killTree(child) {
+  if (!child || child.exitCode != null) return;
+  // yt-dlp may have started ffmpeg; end the whole tree.
+  execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }, () => {});
+}
+
+function shutdown() {
+  for (const c of children.values()) killTree(c);
+  setTimeout(() => process.exit(0), 300);
+}
+
+async function ping(cfg, reqId) {
+  const exists = fs.existsSync(cfg.ytDlpPath);
+  let version = "";
+  if (exists) {
+    version = await new Promise((resolve) =>
+      execFile(cfg.ytDlpPath, ["--version"], { windowsHide: true, timeout: 20000 }, (err, out) => resolve(err ? "" : out.trim()))
+    );
+  }
+  const ff = await findFfmpeg(cfg);
+  send({
+    type: "pong", reqId, ok: exists && !!version, ytDlpPath: cfg.ytDlpPath, ytDlpVersion: version,
+    ffmpeg: ff.found, defaultFolder: cfg.defaultFolder,
+    error: !exists ? `yt-dlp.exe not found at ${cfg.ytDlpPath}. Edit native-host\\config.json.` : !version ? "yt-dlp.exe did not run." : undefined,
+  });
+}
+
+function pickFolder(cfg, initial, reqId) {
+  const start = safeFolder(initial) || safeFolder(cfg.defaultFolder) || os.homedir();
+  // Fixed PowerShell script; the start folder is passed through an environment variable, not the command line.
+  const script = [
+    "Add-Type -AssemblyName System.Windows.Forms",
+    "$d = New-Object System.Windows.Forms.FolderBrowserDialog",
+    "$d.Description = 'Choose where Video Saver puts YouTube downloads'",
+    "$d.SelectedPath = $env:VS_START_FOLDER",
+    "$d.ShowNewFolderButton = $true",
+    "$f = New-Object System.Windows.Forms.Form -Property @{TopMost=$true; ShowInTaskbar=$false; WindowState='Minimized'}",
+    "if ($d.ShowDialog($f) -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }",
+  ].join("; ");
+  execFile(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-STA", "-ExecutionPolicy", "Bypass", "-Command", script],
+    { windowsHide: false, env: { ...process.env, VS_START_FOLDER: start }, timeout: 10 * 60 * 1000 },
+    (err, stdout) => {
+      const chosen = safeFolder(stdout.trim());
+      send({ type: "folder", reqId, folder: chosen || null, cancelled: !chosen });
+    }
+  );
+}
+
+async function download(cfg, msg) {
+  const jobId = String(msg.jobId || "").slice(0, 64);
+  const fail = (error) => send({ type: "error", jobId, error });
+  if (!/^[\w-]{1,64}$/.test(jobId)) return fail("Bad job id.");
+  if (children.has(jobId)) return fail("That download is already running.");
+
+  const id = youtubeId(msg.url);
+  if (!id) return fail("That isn't a YouTube video URL.");
+  if (!QUALITIES.includes(msg.quality)) return fail("Unknown quality option.");
+  let folder = safeFolder(msg.folder);
+  if (!folder && !msg.folder) {
+    try {
+      fs.mkdirSync(cfg.defaultFolder, { recursive: true });
+      folder = safeFolder(cfg.defaultFolder);
+    } catch {}
+  }
+  if (!folder) return fail("The download folder doesn't exist. Choose another folder.");
+  const name = msg.filename ? safeName(msg.filename) : null;
+  if (msg.filename && !name) return fail("That file name can't be used.");
+  if (!fs.existsSync(cfg.ytDlpPath)) return fail(`yt-dlp.exe not found at ${cfg.ytDlpPath}. Edit native-host\\config.json.`);
+
+  const ff = await findFfmpeg(cfg);
+  const args = buildArgs({ id, quality: msg.quality, folder, name, hasFfmpeg: ff.found, ffmpegPath: ff.location });
+  log("download", jobId, id, msg.quality, folder);
+  send({ type: "started", jobId, videoId: id, ffmpeg: ff.found });
+
+  const child = spawn(cfg.ytDlpPath, args, { windowsHide: true, shell: false });
+  children.set(jobId, child);
+  let lastFile = "";
+  const errors = [];
+  let stage = 0; // separate video+audio downloads count as two stages
+  let lastPercent = 0;
+
+  const onLine = (line) => {
+    const p = parseProgress(line);
+    if (p) {
+      if (p.percent < lastPercent - 50) stage++;
+      lastPercent = p.percent;
+      send({ type: "progress", jobId, ...p, stage });
+      return;
+    }
+    const f = /^VSFILE (.+)$/.exec(line.trim());
+    if (f) lastFile = f[1];
+    else if (/\[Merger\]|\[ExtractAudio\]|\[FixupM3u8\]/.test(line)) send({ type: "status", jobId, message: "Finishing (merging/converting)…" });
+    else if (/has already been downloaded/.test(line)) send({ type: "status", jobId, message: "Already downloaded." });
+  };
+  const lines = (stream, cb) => {
+    let rest = "";
+    stream.setEncoding("utf8");
+    stream.on("data", (d) => {
+      rest += d;
+      const parts = rest.split(/\r?\n/);
+      rest = parts.pop();
+      parts.forEach(cb);
+    });
+    stream.on("end", () => rest && cb(rest));
+  };
+  lines(child.stdout, onLine);
+  lines(child.stderr, (l) => {
+    if (/ERROR:|WARNING:/.test(l)) errors.push(l.trim());
+    onLine(l);
+  });
+
+  child.on("error", (err) => {
+    children.delete(jobId);
+    fail(`Couldn't start yt-dlp: ${err.message}`);
+  });
+  child.on("close", (code) => {
+    const wasCancelled = child.__cancelled;
+    children.delete(jobId);
+    if (wasCancelled) return send({ type: "cancelled", jobId });
+    if (code === 0) {
+      return send({ type: "done", jobId, file: lastFile, warning: ff.found ? undefined : "ffmpeg wasn't found, so the best single-file format was used (often lower quality, and audio stays M4A)." });
+    }
+    const err = errors.filter((e) => e.startsWith("ERROR")).pop() || errors.pop() || `yt-dlp exited with code ${code}`;
+    fail(err.replace(/^ERROR:\s*/, "").slice(0, 500));
+  });
+}
+
+function cancel(msg) {
+  const child = children.get(String(msg.jobId || ""));
+  if (!child) return send({ type: "error", jobId: msg.jobId, error: "No such download." });
+  child.__cancelled = true;
+  killTree(child);
+}
+
+// --- Main ----------------------------------------------------------------------------
+
+function main() {
+  const cfg = loadConfig();
+  // Chrome passes the caller's origin, e.g. "chrome-extension://<id>/", as the first argument.
+  const origin = process.argv.find((a) => a.startsWith("chrome-extension://")) || "";
+  if (!cfg.allowedOrigins.includes(origin)) {
+    log("rejected origin", JSON.stringify(origin));
+    send({ type: "error", error: "This extension isn't allowed to use the yt-dlp helper." });
+    setTimeout(() => process.exit(1), 100);
+    return;
+  }
+  readMessages((msg) => {
+    switch (msg?.type) {
+      case "ping":
+        return ping(cfg, msg.reqId);
+      case "pickFolder":
+        return pickFolder(cfg, msg.initial, msg.reqId);
+      case "download":
+        return download(cfg, msg);
+      case "cancel":
+        return cancel(msg);
+      default:
+        return send({ type: "error", error: "Unknown command." });
+    }
+  });
+}
+
+if (require.main === module) main();
+module.exports = { youtubeId, safeName, safeFolder, buildArgs, parseProgress, QUALITIES };

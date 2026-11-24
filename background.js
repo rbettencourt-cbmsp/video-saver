@@ -165,6 +165,121 @@ const handlers = {
   getUpdate: async () => (await chrome.storage.local.get("update")).update || null,
 };
 
+// --- YouTube via the local yt-dlp helper (native messaging) ------------------------
+// Extension → native host (native-host/host.js) → your yt-dlp.exe → file on disk.
+// One native connection per download; closing it stops yt-dlp.
+
+const YT_HOST = "com.videosaver.ytdlp";
+const YT_QUALITIES = ["best", "1080", "720", "480", "audio"];
+const ytJobs = new Map(); // jobId -> { port, tabId, title }
+
+function ytVideoId(url) {
+  try {
+    const u = new URL(url);
+    if (!/^(www\.|m\.|music\.)?youtube\.com$|^youtu\.be$/.test(u.hostname)) return null;
+    const id = u.hostname === "youtu.be" ? u.pathname.slice(1)
+      : u.pathname === "/watch" ? u.searchParams.get("v")
+      : (/^\/(?:shorts|live)\/([^/?#]+)/.exec(u.pathname) || [])[1];
+    return /^[A-Za-z0-9_-]{11}$/.test(id || "") ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+// One request → one reply over a short-lived connection (ping, folder picker).
+function ytRequest(message, replyType, timeoutMs) {
+  return new Promise((resolve) => {
+    let port;
+    try {
+      port = chrome.runtime.connectNative(YT_HOST);
+    } catch (err) {
+      return resolve({ ok: false, notInstalled: true, error: err.message });
+    }
+    const reqId = crypto.randomUUID();
+    const timer = setTimeout(() => finish({ ok: false, error: "The yt-dlp helper didn't answer." }), timeoutMs);
+    function finish(result) {
+      clearTimeout(timer);
+      try {
+        port.disconnect();
+      } catch {}
+      resolve(result);
+    }
+    port.onMessage.addListener((m) => {
+      if (m.type === replyType && m.reqId === reqId) finish(m);
+      else if (m.type === "error") finish({ ok: false, error: m.error });
+    });
+    port.onDisconnect.addListener(() => {
+      const e = chrome.runtime.lastError?.message || "";
+      finish({ ok: false, notInstalled: /not found|not exist|forbidden/i.test(e), error: e || "The yt-dlp helper closed." });
+    });
+    port.postMessage({ ...message, reqId });
+  });
+}
+
+function ytNotify(title, message) {
+  chrome.notifications.create({ type: "basic", iconUrl: "icons/icon128.png", title, message, priority: 1 });
+}
+
+function ytForward(tabId, { type: hostType, ...rest }) {
+  if (tabId != null) chrome.tabs.sendMessage(tabId, { ...rest, type: "yt:event", hostType }).catch(() => {});
+}
+
+Object.assign(handlers, {
+  ytPing: () => ytRequest({ type: "ping" }, "pong", 30000),
+  ytPickFolder: ({ initial }) => ytRequest({ type: "pickFolder", initial: String(initial || "") }, "folder", 10 * 60 * 1000),
+
+  async ytStart({ url, quality, folder, filename, title }, sender) {
+    const id = ytVideoId(url);
+    if (!id) return { error: "That isn't a YouTube video page." };
+    if (!YT_QUALITIES.includes(quality)) return { error: "Unknown quality option." };
+    const jobId = crypto.randomUUID();
+    const tabId = sender.tab?.id;
+    let port;
+    try {
+      port = chrome.runtime.connectNative(YT_HOST);
+    } catch (err) {
+      return { error: err.message, notInstalled: true };
+    }
+    const job = { port, tabId, title: String(title || "YouTube video").slice(0, 200) };
+    ytJobs.set(jobId, job);
+    const end = () => {
+      ytJobs.delete(jobId);
+      try {
+        port.disconnect();
+      } catch {}
+    };
+    port.onMessage.addListener((m) => {
+      if (m.jobId && m.jobId !== jobId) return;
+      ytForward(tabId, { ...m, jobId });
+      if (m.type === "done") {
+        ytNotify("Download complete", `${job.title}\n${m.file || ""}`);
+        end();
+      } else if (m.type === "error") {
+        ytNotify("Download failed", `${job.title}\n${m.error}`);
+        end();
+      } else if (m.type === "cancelled") end();
+    });
+    port.onDisconnect.addListener(() => {
+      if (!ytJobs.has(jobId)) return;
+      ytJobs.delete(jobId);
+      const e = chrome.runtime.lastError?.message || "The yt-dlp helper stopped unexpectedly.";
+      ytForward(tabId, { type: "error", jobId, error: e, notInstalled: /not found|not exist/i.test(e) });
+    });
+    port.postMessage({
+      type: "download", jobId,
+      url: `https://www.youtube.com/watch?v=${id}`,
+      quality,
+      folder: String(folder || ""),
+      filename: String(filename || "").slice(0, 200),
+    });
+    return { jobId };
+  },
+
+  ytCancel: ({ jobId }) => {
+    ytJobs.get(jobId)?.port.postMessage({ type: "cancel", jobId });
+  },
+});
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const h = handlers[msg?.type];
   if (!h) return;

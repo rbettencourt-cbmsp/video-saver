@@ -71,7 +71,11 @@ function qualitiesFromHls(text, url) {
 // Ranks: 0 full stream/player, 1 file, 2 single track, 3 unknown, 4 preview clip, 5 unsupported.
 async function classify(item) {
   if (item.type === "youtube") {
-    Object.assign(item, { title: "YouTube player", label: "YouTube isn’t supported", rank: 5 });
+    Object.assign(item, {
+      title: "YouTube player",
+      label: "Use the Download button under the video on youtube.com (needs the yt-dlp helper)",
+      rank: 5,
+    });
     return;
   }
 

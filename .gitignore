@@ -1,3 +1,7 @@
 node_modules/
 vendor/
 *.exe
+native-host/config.json
+native-host/host.bat
+native-host/com.videosaver.ytdlp.json
+native-host/host.log

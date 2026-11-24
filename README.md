@@ -34,6 +34,84 @@ A Manifest V3 browser extension that finds videos on any page and saves them as 
 
 The Downloads tab opens in the background and does the work. Keep it open until downloads finish. Files are saved in your Downloads folder under **Video Saver**.
 
+## YouTube downloads (with your own yt-dlp.exe)
+
+On YouTube watch pages, a **Download** panel appears under the video. It hands the download to your local `yt-dlp.exe` through a small helper program, because Chrome extensions can't run `.exe` files themselves:
+
+```
+YouTube page panel (youtube.js) → background.js → native messaging → native-host/host.js → yt-dlp.exe → file
+```
+
+Options: **Best available**, **1080p**, **720p**, **480p**, **Audio only (MP3)**. Under **Options** you can set the file name and choose a folder (a Windows folder picker opens). Progress, completion and errors show in the panel, and a Windows notification appears when a download finishes or fails.
+
+### Requirements
+
+- Windows, with Chrome, Edge or Brave
+- [Node.js](https://nodejs.org) (runs the helper)
+- `yt-dlp.exe`. By default the helper uses the one in this folder
+- `ffmpeg` on PATH or next to `yt-dlp.exe`. It's needed for 1080p (video and audio are merged) and for MP3. Without it, the helper falls back to single-file formats (often 360p) and M4A audio
+- An **up-to-date** yt-dlp. YouTube changes often, and old versions fail with errors like "Precondition check failed". Update with:
+
+```powershell
+.\yt-dlp.exe -U
+```
+
+### Install the helper (one time, no admin needed)
+
+Run from this folder:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\native-host\install-host.ps1
+```
+
+If your `yt-dlp.exe` is somewhere else:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\native-host\install-host.ps1 -YtDlpPath "D:\tools\yt-dlp.exe"
+```
+
+Optional parameters: `-FfmpegPath "C:\ffmpeg\bin"` (to use a specific ffmpeg) and `-DefaultFolder "D:\Videos"`.
+
+The script:
+
+1. Writes `native-host\config.json` with the yt-dlp path, the default folder, and the one extension ID allowed to connect
+2. Writes `native-host\host.bat`, which starts `host.js` with your `node.exe`
+3. Writes the host manifest `native-host\com.videosaver.ytdlp.json`, whose `allowed_origins` contains only this extension's ID
+4. Creates these registry keys (current user only), each pointing at that manifest:
+   - `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.videosaver.ytdlp`
+   - `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.videosaver.ytdlp`
+   - `HKCU\Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\com.videosaver.ytdlp`
+
+To change the yt-dlp path later, re-run the script with `-YtDlpPath`, or edit `ytDlpPath` in `native-host\config.json` (use `\\` in JSON paths). To remove everything:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\native-host\uninstall-host.ps1
+```
+
+**Doing it by hand instead of the script:** create the manifest JSON yourself (`name`, `description`, `path` to `host.bat`, `"type": "stdio"`, `allowed_origins: ["chrome-extension://doocigjijigkklclednoibneaenlmmnj/"]`). Then set the default value of the registry key above to the manifest's full path, for example:
+
+```powershell
+reg add "HKCU\Software\Google\Chrome\NativeMessagingHosts\com.videosaver.ytdlp" /ve /t REG_SZ /d "C:\DevLocal\video-saver\native-host\com.videosaver.ytdlp.json" /f
+```
+
+### Load and test
+
+1. Run `.\yt-dlp.exe -U`, then the install script
+2. In `chrome://extensions`, remove any older unpacked copy of Video Saver, click **Load unpacked**, and pick this folder. Its ID must be `doocigjijigkklclednoibneaenlmmnj` (fixed by the `key` in `manifest.json`)
+3. Open a YouTube video you own or are allowed to download. Under the video it should say **Ready · yt-dlp <version>**
+4. Choose a quality, optionally open **Options** to set the name or folder, then click **Download**
+5. Watch the progress bar. When it finishes, you get a notification and the panel shows the saved path
+
+If something goes wrong, check `native-host\host.log` (the helper logs what it runs and any rejected callers). `npm test` includes tests that start the helper exactly the way Chrome does.
+
+### Security
+
+- Only this extension can start the helper. Chrome enforces `allowed_origins`, and the helper also checks the caller ID Chrome passes in
+- The helper accepts only four commands: `ping`, `pickFolder`, `download` and `cancel`. There's no way to pass yt-dlp options or run other programs
+- The URL is reduced to an 11-character video ID and rebuilt as `https://www.youtube.com/watch?v=<id>`. Quality comes from a fixed list. The folder must be an existing local absolute path, and the file name is cleaned of path and template characters
+- yt-dlp runs without a shell, with `--ignore-config --no-exec`, and with the URL after `--`
+- No cookies or logins are passed, so yt-dlp sees only what a signed-out viewer can. Nothing here bypasses DRM or access controls
+
 ## How long videos work
 
 ffmpeg.wasm can use at most 2 GB of memory, so the saver never holds a whole video:

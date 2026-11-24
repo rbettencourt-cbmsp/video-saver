@@ -3,6 +3,8 @@
 
 (() => {
   if (window !== top || globalThis.__videoSaverButton) return;
+  // YouTube has its own Download panel (youtube.js), and its Trusted Types policy blocks this markup.
+  if (/(^|\.)youtube\.com$/.test(location.hostname)) return;
   globalThis.__videoSaverButton = true;
 
   let host, panel, button, count = 0, dismissed = false, tabId = null;
