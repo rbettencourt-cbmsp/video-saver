@@ -1,0 +1,47 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Video Saver browser tests</title>
+<!-- Serve the repo root (python -m http.server 8765) and open /test/run.html. -->
+<style>body{font:13px system-ui;margin:16px} pre{background:#f6f6f6;padding:6px;white-space:pre-wrap}
+.PASS{color:#1e6b1a}.FAIL,.ERROR{color:#b00020} iframe{display:none}</style>
+<h1>Video Saver browser tests</h1>
+<div id="summary">running…</div>
+<div id="results"></div>
+<script>
+const SCENARIOS = ["hls-master", "hls-byterange", "dash-timeline", "dash-number", "dash-seglist",
+                   "dash-baseurl", "file-referrer", "dash-drm"];
+const results = document.getElementById("results");
+const tally = {};
+
+function runOne(name) {
+  return new Promise((resolve) => {
+    const frame = document.createElement("iframe");
+    const timer = setTimeout(() => done({ scenario: name, result: "ERROR", detail: "timed out" }), 120000);
+    function done(msg) {
+      clearTimeout(timer);
+      removeEventListener("message", onMsg);
+      frame.remove();
+      resolve(msg);
+    }
+    function onMsg(e) { if (e.data?.scenario === name) done(e.data); }
+    addEventListener("message", onMsg);
+    frame.src = `saver.html?scenario=${name}`;
+    document.body.append(frame);
+  });
+}
+
+(async () => {
+  for (const name of SCENARIOS) {
+    const r = await runOne(name);
+    tally[r.result] = (tally[r.result] || 0) + 1;
+    const el = document.createElement("div");
+    el.innerHTML = `<h3 class="${r.result}">${r.result} — ${name}</h3>`;
+    const pre = document.createElement("pre");
+    pre.textContent = r.detail;
+    el.append(pre);
+    results.append(el);
+  }
+  document.getElementById("summary").textContent =
+    "DONE " + Object.entries(tally).map(([k, v]) => `${k}: ${v}`).join(", ");
+})();
+</script>

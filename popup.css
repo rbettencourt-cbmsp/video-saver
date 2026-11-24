@@ -12,3 +12,5 @@ button.save { background: #1a73e8; color: #fff; border-color: #1a73e8; }
 footer { color: #888; font-size: 11px; margin-top: 8px; }
 .tag.best { background: #e3f5e1; color: #1e6b1a; font-weight: 600; }
 li.dim { opacity: 0.6; }
+.host { font-size: 11px; color: #888; margin: 0 6px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }

@@ -1,4 +1,8 @@
 // Minimal HLS playlist parser (RFC 8216 subset). No dependencies.
+// Segments are { url, start?, end? } where start/end are inclusive byte offsets
+// (present only for #EXT-X-BYTERANGE streams).
+
+const hlsResolve = typeof resolveUrl === "function" ? resolveUrl : require("./common.js").resolveUrl;
 
 function parseAttributes(str) {
   const attrs = {};
@@ -10,25 +14,26 @@ function parseAttributes(str) {
   return attrs;
 }
 
+// "<length>[@<offset>]" -> { length, offset|null }
+function parseByteRange(str) {
+  const m = /^(\d+)(?:@(\d+))?$/.exec(String(str).trim());
+  if (!m) throw new Error(`Bad BYTERANGE "${str}"`);
+  return { length: Number(m[1]), offset: m[2] != null ? Number(m[2]) : null };
+}
+
 function parsePlaylist(text, baseUrl) {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (lines[0] !== "#EXTM3U") throw new Error("Not an HLS playlist");
 
-  // Signed-URL CDNs (e.g. CloudFront) put the signature on the playlist URL and
-  // expect players to reuse it for segments listed without their own query.
-  const base = new URL(baseUrl);
-  const abs = (u) => {
-    const url = new URL(u, base);
-    if (!url.search && base.search && url.origin === base.origin) url.search = base.search;
-    return url.href;
-  };
+  const abs = (u) => hlsResolve(u, baseUrl);
   const variants = [];
   const audio = [];
   const segments = [];
   let init = null;
   let encrypted = false;
-  let byteRange = false;
   let pendingVariant = null;
+  let pendingRange = null;
+  const lastEnd = new Map(); // url -> next offset, for ranges without "@offset"
 
   for (const line of lines) {
     if (line.startsWith("#EXT-X-STREAM-INF:")) {
@@ -48,22 +53,36 @@ function parsePlaylist(text, baseUrl) {
       if (a.METHOD && a.METHOD !== "NONE") encrypted = true;
     } else if (line.startsWith("#EXT-X-MAP:")) {
       const a = parseAttributes(line.slice(11));
-      if (a.URI) init = abs(a.URI);
-      if (a.BYTERANGE) byteRange = true;
-    } else if (line.startsWith("#EXT-X-BYTERANGE")) {
-      byteRange = true;
+      if (a.URI) {
+        init = { url: abs(a.URI) };
+        if (a.BYTERANGE) {
+          const r = parseByteRange(a.BYTERANGE);
+          const start = r.offset ?? 0;
+          Object.assign(init, { start, end: start + r.length - 1 });
+        }
+      }
+    } else if (line.startsWith("#EXT-X-BYTERANGE:")) {
+      pendingRange = parseByteRange(line.slice(17));
     } else if (!line.startsWith("#")) {
       if (pendingVariant) {
         variants.push({ ...pendingVariant, uri: abs(line) });
         pendingVariant = null;
-      } else {
-        segments.push(abs(line));
+        continue;
       }
+      const seg = { url: abs(line) };
+      if (pendingRange) {
+        const start = pendingRange.offset ?? lastEnd.get(seg.url) ?? 0;
+        seg.start = start;
+        seg.end = start + pendingRange.length - 1;
+        lastEnd.set(seg.url, seg.end + 1);
+        pendingRange = null;
+      }
+      segments.push(seg);
     }
   }
 
   if (variants.length) return { kind: "master", variants, audio };
-  return { kind: "media", segments, init, encrypted, byteRange };
+  return { kind: "media", segments, init, encrypted };
 }
 
 function bestVariant(variants) {
@@ -76,4 +95,6 @@ function audioFor(variant, audio) {
   return group.find((a) => a.isDefault) || group[0] || null;
 }
 
-if (typeof module !== "undefined") module.exports = { parsePlaylist, parseAttributes, bestVariant, audioFor };
+if (typeof module !== "undefined") {
+  module.exports = { parsePlaylist, parseAttributes, parseByteRange, bestVariant, audioFor };
+}

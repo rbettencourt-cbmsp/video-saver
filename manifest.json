@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Video Saver",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Find videos on the current page and save them for offline viewing.",
   "permissions": [
     "webRequest",
@@ -9,7 +9,8 @@
     "scripting",
     "downloads",
     "tabs",
-    "webNavigation"
+    "webNavigation",
+    "declarativeNetRequestWithHostAccess"
   ],
   "host_permissions": [
     "<all_urls>"

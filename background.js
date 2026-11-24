@@ -1,8 +1,12 @@
-// Watches network requests and remembers media URLs seen in each tab.
-// State lives in chrome.storage.session so it survives service-worker restarts.
+// Watches network responses and remembers media URLs seen in each tab (including
+// inside embedded player iframes). State lives in chrome.storage.session so it
+// survives service-worker restarts. The toolbar badge shows how many were found.
 
-const MEDIA_RE = /\.(m3u8|mp4|webm|mov)$/i;
+importScripts("common.js");
+
 const MAX_PER_TAB = 50;
+// Pieces of a segmented stream, not whole videos.
+const SEGMENT_RE = /(?:^|[\/_-])(?:seg(?:ment)?|chunk|frag(?:ment)?|part)[-_]?\d+\.(?:mp4|m4[sva])$/i;
 
 let queue = Promise.resolve();
 function serialize(fn) {
@@ -12,40 +16,63 @@ function serialize(fn) {
 
 const key = (tabId) => `tab:${tabId}`;
 
-function addMedia(tabId, url) {
+function setBadge(tabId, count) {
+  chrome.action.setBadgeText({ tabId, text: count ? String(count) : "" }).catch(() => {});
+  chrome.action.setBadgeBackgroundColor({ tabId, color: "#1a73e8" }).catch(() => {});
+}
+
+// The page that embeds the player is what the CDN expects as Referer.
+async function frameUrl(tabId, frameId, fallback) {
+  try {
+    const f = await chrome.webNavigation.getFrame({ tabId, frameId });
+    if (f?.url && /^https?:/.test(f.url)) return f.url;
+  } catch {}
+  return fallback;
+}
+
+function addMedia(details, type) {
+  const url = type === "file" ? stripRangeParams(details.url) : details.url;
+  const { tabId, frameId } = details;
   return serialize(async () => {
     const k = key(tabId);
     const { [k]: list = [] } = await chrome.storage.session.get(k);
     if (list.some((m) => m.url === url)) return;
-    const type = /\.m3u8$/i.test(new URL(url).pathname) ? "hls" : "file";
-    list.push({ url, type, source: "network", seen: Date.now() });
-    await chrome.storage.session.set({ [k]: list.slice(-MAX_PER_TAB) });
+    const referrer = await frameUrl(tabId, frameId, details.initiator ? details.initiator + "/" : "");
+    list.push({ url, type, referrer, inFrame: frameId > 0, source: "network", seen: Date.now() });
+    const kept = list.slice(-MAX_PER_TAB);
+    await chrome.storage.session.set({ [k]: kept });
+    setBadge(tabId, kept.length);
   });
 }
 
 function clearTab(tabId) {
+  setBadge(tabId, 0);
   return serialize(() => chrome.storage.session.remove(key(tabId)));
 }
 
-chrome.webRequest.onBeforeRequest.addListener(
+// Response headers let us catch manifests whose URLs don't end in .m3u8/.mpd.
+chrome.webRequest.onHeadersReceived.addListener(
   (details) => {
     if (details.tabId < 0) return;
-    let path;
-    try {
-      path = new URL(details.url).pathname;
-    } catch {
-      return;
-    }
-    if (MEDIA_RE.test(path)) addMedia(details.tabId, details.url);
+    if (details.initiator?.startsWith("chrome-extension://")) return; // our own saver
+    if (details.statusCode >= 400) return;
+    const ct = details.responseHeaders?.find((h) => h.name.toLowerCase() === "content-type")?.value || "";
+    const type = mediaKind(details.url, ct);
+    if (!type) return;
+    if (type === "file" && SEGMENT_RE.test(new URL(details.url).pathname)) return;
+    addMedia(details, type);
   },
-  { urls: ["<all_urls>"], types: ["media", "xmlhttprequest", "other"] }
+  { urls: ["<all_urls>"], types: ["media", "xmlhttprequest", "other"] },
+  ["responseHeaders"]
 );
 
 // A full page load starts a fresh list; in-app (pushState) navigation keeps it.
 chrome.webNavigation.onCommitted.addListener((d) => {
   if (d.frameId === 0) clearTab(d.tabId);
 });
-chrome.tabs.onRemoved.addListener((tabId) => clearTab(tabId));
+chrome.tabs.onRemoved.addListener((tabId) => {
+  serialize(() => chrome.storage.session.remove(key(tabId)));
+});
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "getMedia") {
