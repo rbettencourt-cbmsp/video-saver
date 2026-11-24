@@ -145,6 +145,8 @@ Do this in the Video Saver folder: the unzipped Chrome package, or for Firefox t
 
 When you're done, the panel under a YouTube video shows **Download**, a quality menu, **Options** and **?**, and the status line reads **Ready · yt-dlp …**.
 
+> **Restart your computer after installing the tools.** Newly installed programs (Node.js, ffmpeg, yt-dlp) are often not visible to an already-running browser until you restart. If you see errors like **"ffmpeg wasn't found"**, **"yt-dlp not found"**, or the helper not answering, restart the computer, open the browser again, and reload the YouTube page. That fixes most setup problems.
+
 **Using it:** choose **Best available**, **1080p**, **720p**, **480p** or **Audio only (MP3)**, then click **Download**. Under **Options** you can change the file name and the folder (it starts as `Downloads/Video Saver`). You'll get a notification when it's done.
 
 **"Sign in to confirm you're not a bot".** yt-dlp is a separate program, so it can't use your browser's YouTube sign-in. By default it downloads as a signed-out viewer, and YouTube sometimes stops that, especially over a VPN.
@@ -304,7 +306,8 @@ The Video Saver popup shows a notice when a new version is out. To keep YouTube 
 | "This extension isn't allowed to use the yt-dlp helper" | Run the "Connect the helper" step of YouTube setup again, then reload the extension |
 | YouTube download fails with "Precondition check failed" or similar | Update yt-dlp (see [Updating](#updating)) |
 | YouTube: "Sign in to confirm you're not a bot" | Turn off your VPN and try again. If it persists, tick **Options → Use my YouTube sign-in** (see [Using it](#youtube-setup-optional)) |
-| YouTube: "ffmpeg wasn't found" | Install ffmpeg (YouTube setup), then restart the browser |
+| YouTube: "ffmpeg wasn't found" | Install ffmpeg (YouTube setup), then **restart your computer** and reload the YouTube page |
+| YouTube: "yt-dlp not found" or the helper doesn't answer right after setup | **Restart your computer**, then reload the YouTube page. If it continues, run the "Connect the helper" step again |
 | macOS: install script says yt-dlp or Node wasn't found | Run `brew install node ffmpeg yt-dlp`, open a new Terminal window, and try again |
 | A download stopped when I closed a tab | The **Downloads** tab does the work. Reopen it from the popup (**Open downloads**) and the queue carries on |
 
