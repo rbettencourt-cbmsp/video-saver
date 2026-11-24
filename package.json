@@ -11,5 +11,13 @@
     "@ffmpeg/core": "0.12.10",
     "@ffmpeg/ffmpeg": "0.12.15"
   },
-  "description": "Save videos from web pages as one MP4. Optional YouTube downloads via your own yt-dlp."
+  "description": "Save videos from web pages as one MP4. Optional YouTube downloads via your own yt-dlp.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rbettencourt-cbmsp/video-saver.git"
+  },
+  "homepage": "https://github.com/rbettencourt-cbmsp/video-saver#readme",
+  "bugs": {
+    "url": "https://github.com/rbettencourt-cbmsp/video-saver/issues"
+  }
 }

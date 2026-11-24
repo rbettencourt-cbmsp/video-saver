@@ -7,7 +7,7 @@
 importScripts("common.js");
 
 // Set to "owner/repo" to get a "new version available" notice from GitHub releases.
-const UPDATE_REPO = "";
+const UPDATE_REPO = "rbettencourt-cbmsp/video-saver";
 
 const MAX_PER_TAB = 50;
 // Pieces of a segmented stream, not whole videos.

@@ -43,7 +43,7 @@ Then close PowerShell and open a new window, so it can find Node.
 **2. Download Video Saver.** Either click **Code → Download ZIP** on the GitHub page and unzip it, or use git:
 
 ```powershell
-git clone https://github.com/YOUR-USERNAME/video-saver.git
+git clone https://github.com/rbettencourt-cbmsp/video-saver.git
 ```
 
 **3. Go into the folder:**
