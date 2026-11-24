@@ -103,41 +103,85 @@
     ui.quality.addEventListener("change", () => chrome.storage.local.set({ ytQuality: ui.quality.value }));
   }
 
-  // "?" panel: the one-time, per-PC setup the YouTube button needs, as copyable
-  // PowerShell commands in the order to run them.
-  const SETUP_STEPS = [
-    {
-      title: "Install Node.js (runs the helper)",
-      commands: ["winget install -e --id OpenJS.NodeJS.LTS"],
-    },
-    {
-      title: "Install ffmpeg (needed for 1080p and MP3)",
-      commands: ["winget install -e --id Gyan.FFmpeg"],
-    },
-    {
-      title: "Close PowerShell, then open a new one in the Video Saver folder (Shift + right-click the folder → Open PowerShell window here), so the new programs are found.",
-      commands: [],
-    },
-    {
-      title: "Download yt-dlp.exe into the folder (skip if it's already there), then make sure it's up to date",
-      commands: [
-        "Invoke-WebRequest -Uri https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe -OutFile yt-dlp.exe",
-        ".\\yt-dlp.exe -U",
+  // "?" panel: the one-time, per-computer setup the YouTube button needs, as copyable
+  // commands in the order to run them, for the system this browser runs on.
+  const RELOAD_STEP = {
+    title: "Reload Video Saver: on the extensions page remove it and add it again (Firefox: reload it in about:debugging), then reload this page.",
+    commands: [],
+  };
+  const SETUP = {
+    windows: {
+      shell: "PowerShell",
+      steps: [
+        { title: "Install Node.js (runs the helper)", commands: ["winget install -e --id OpenJS.NodeJS.LTS"] },
+        { title: "Install ffmpeg (needed for 1080p and MP3)", commands: ["winget install -e --id Gyan.FFmpeg"] },
+        {
+          title: "Close PowerShell, then open a new one in the Video Saver folder (Shift + right-click the folder → Open PowerShell window here), so the new programs are found.",
+          commands: [],
+        },
+        {
+          title: "Download yt-dlp.exe into the folder (skip if it's already there), then make sure it's up to date",
+          commands: [
+            "Invoke-WebRequest -Uri https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe -OutFile yt-dlp.exe",
+            ".\\yt-dlp.exe -U",
+          ],
+        },
+        {
+          title: "Check everything is found (each line should print a version)",
+          commands: ["node --version; ffmpeg -version | Select-Object -First 1; .\\yt-dlp.exe --version"],
+        },
+        { title: "Connect the helper to your browsers", commands: ["powershell -ExecutionPolicy Bypass -File .\\native-host\\install-host.ps1"] },
+        RELOAD_STEP,
       ],
+      note: "Moved the Video Saver folder? Run step 6 again. If winget isn't found, install “App Installer” from the Microsoft Store. Keep yt-dlp current with “.\\yt-dlp.exe -U”.",
     },
-    {
-      title: "Check everything is found (each line should print a version)",
-      commands: ["node --version; ffmpeg -version | Select-Object -First 1; .\\yt-dlp.exe --version"],
+    mac: {
+      shell: "Terminal",
+      steps: [
+        {
+          title: "Install Homebrew, the Mac package manager (skip this if you already have it). When it finishes, run the “Next steps” commands it prints.",
+          commands: ['/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'],
+        },
+        { title: "Install Node.js, ffmpeg and yt-dlp", commands: ["brew install node ffmpeg yt-dlp"] },
+        {
+          title: "Go to the Video Saver folder: type “cd ” (with a space), drag the folder from Finder into Terminal, and press Return.",
+          commands: [],
+        },
+        {
+          title: "Check everything is found (each line should print a version)",
+          commands: ["node --version; ffmpeg -version | head -n 1; yt-dlp --version"],
+        },
+        { title: "Connect the helper to your browsers", commands: ["bash native-host/install-host.sh"] },
+        RELOAD_STEP,
+      ],
+      note: "Moved the Video Saver folder? Run step 5 again. Keep yt-dlp current with “brew upgrade yt-dlp”.",
     },
-    {
-      title: "Connect the helper to Chrome",
-      commands: ["powershell -ExecutionPolicy Bypass -File .\\native-host\\install-host.ps1"],
+    linux: {
+      shell: "a terminal",
+      steps: [
+        { title: "Install Node.js and ffmpeg (Ubuntu/Debian; use your distribution's package manager otherwise)", commands: ["sudo apt install -y nodejs ffmpeg curl python3"] },
+        {
+          title: "Install yt-dlp for your user",
+          commands: ["mkdir -p ~/.local/bin && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ~/.local/bin/yt-dlp && chmod a+rx ~/.local/bin/yt-dlp"],
+        },
+        { title: "Go to the Video Saver folder (right-click it → Open in Terminal, or use cd).", commands: [] },
+        {
+          title: "Check everything is found (each line should print a version)",
+          commands: ["node --version; ffmpeg -version | head -n 1; ~/.local/bin/yt-dlp --version"],
+        },
+        { title: "Connect the helper to your browsers", commands: ["bash native-host/install-host.sh"] },
+        RELOAD_STEP,
+      ],
+      note: "Moved the Video Saver folder? Run step 5 again. Keep yt-dlp current with “~/.local/bin/yt-dlp -U”.",
     },
-    {
-      title: "In chrome://extensions, remove Video Saver and add it again with Load unpacked, then reload this page.",
-      commands: [],
-    },
-  ];
+  };
+
+  function thisSystem() {
+    const p = `${navigator.userAgentData?.platform || ""} ${navigator.platform || ""}`.toLowerCase();
+    if (p.includes("mac")) return "mac";
+    if (p.includes("linux") && !p.includes("android")) return "linux";
+    return "windows";
+  }
 
   function copyRow(command) {
     const copy = el("button", { text: "Copy", title: "Copy this command" });
@@ -155,21 +199,41 @@
 
   function buildHelp() {
     ui.helpState = el("div", { class: "vs-help-state" });
+    const steps = el("ol");
+    const sub = el("div", { class: "vs-help-sub" });
+    const note = el("p", { class: "vs-help-note" });
+    const tabs = el("div", { class: "vs-os-tabs", role: "tablist", "aria-label": "Your system" });
+    const labels = { windows: "Windows", mac: "Mac", linux: "Linux" };
+
+    function show(os) {
+      const s = SETUP[os];
+      sub.textContent = `On a new ${os === "windows" ? "PC" : "computer"}, run these in ${s.shell}, in order:`;
+      steps.replaceChildren(...s.steps.map((st) => el("li", {}, el("div", { text: st.title }), ...st.commands.map(copyRow))));
+      note.textContent = `${s.note} Full details are in the README.`;
+      for (const b of tabs.children) {
+        const on = b.dataset.os === os;
+        b.classList.toggle("vs-on", on);
+        b.setAttribute("aria-selected", String(on));
+      }
+    }
+    for (const os of Object.keys(SETUP)) {
+      tabs.append(el("button", { text: labels[os], role: "tab", "data-os": os, onclick: () => show(os) }));
+    }
+    show(thisSystem());
+
     return el(
       "div",
       { class: "vs-help", role: "region", "aria-label": "Setup help" },
-      el("div", { class: "vs-help-title", text: "YouTube downloads need a one-time setup on each PC" }),
+      el("div", { class: "vs-help-title", text: "YouTube downloads need a one-time setup on each computer" }),
       el("p", {
-        text: "Chrome can't run programs on its own, so this button hands the download to yt-dlp.exe on this computer " +
+        text: "Browsers can't run programs on their own, so this button hands the download to yt-dlp on this computer " +
           "through a small helper. The rest of Video Saver works without it.",
       }),
       ui.helpState,
-      el("div", { class: "vs-help-sub", text: "On a new PC, run these in PowerShell, in order:" }),
-      el("ol", {}, ...SETUP_STEPS.map((s) => el("li", {}, el("div", { text: s.title }), ...s.commands.map(copyRow)))),
-      el("p", {
-        class: "vs-help-note",
-        text: "Moved the Video Saver folder? Run step 6 again. If winget isn't found, install “App Installer” from the Microsoft Store. Full details are in the README.",
-      })
+      tabs,
+      sub,
+      steps,
+      note
     );
   }
 
@@ -181,12 +245,12 @@
   function showHelperState() {
     if (!ui.helpState) return;
     if (helper?.ok) {
-      ui.helpState.textContent = `This PC: set up ✓ · yt-dlp ${helper.ytDlpVersion} · ffmpeg ${helper.ffmpeg ? "found" : "not found (1080p/MP3 limited)"}`;
+      ui.helpState.textContent = `This computer: set up ✓ · yt-dlp ${helper.ytDlpVersion} · ffmpeg ${helper.ffmpeg ? "found" : "not found (1080p/MP3 limited)"}`;
       ui.helpState.className = "vs-help-state vs-ok";
     } else {
       ui.helpState.textContent = helper?.notInstalled
-        ? "This PC: not set up yet. Follow the steps below."
-        : `This PC: helper found but not working (${helper?.error || "no answer"}).`;
+        ? "This computer: not set up yet. Follow the steps below."
+        : `This computer: helper found but not working (${helper?.error || "no answer"}).`;
       ui.helpState.className = "vs-help-state vs-error";
     }
   }
@@ -242,7 +306,7 @@
       ui.download.disabled = true;
       setStatus(
         helper?.notInstalled
-          ? "YouTube downloads aren't set up on this PC yet. See the steps above (or click ?)."
+          ? "YouTube downloads aren't set up on this computer yet. See the steps above (or click ?)."
           : `yt-dlp helper problem: ${helper?.error || "no answer"}. Click ? for setup help.`,
         "error"
       );

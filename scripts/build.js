@@ -26,7 +26,9 @@ if (!fs.existsSync(path.join(root, "vendor", "core", "ffmpeg-core.wasm"))) {
 const RUNTIME_FILES = fs.readdirSync(root).filter((f) => /\.(js|html|css)$/.test(f));
 const COMMON_DIRS = ["icons", "vendor", "licenses"];
 const DOCS = ["LICENSE", "README.md"];
-const NATIVE_HOST = ["host.js", "install-host.ps1", "uninstall-host.ps1"].map((f) => `native-host/${f}`);
+const NATIVE_HOST = ["host.js", "install-host.ps1", "uninstall-host.ps1", "install-host.sh", "uninstall-host.sh"].map(
+  (f) => `native-host/${f}`
+);
 
 function copyInto(out, extra = []) {
   fs.rmSync(out, { recursive: true, force: true });
@@ -70,12 +72,18 @@ function buildHelper() {
   fs.writeFileSync(
     path.join(out, "README.txt"),
     [
-      "Video Saver: YouTube helper (Windows)",
+      "Video Saver: YouTube helper (Windows, macOS, Linux)",
       "",
-      "Lets the YouTube Download button use yt-dlp on this PC, in Chrome, Edge, Brave and Firefox.",
-      "Put yt-dlp.exe in this folder, open PowerShell here, and run:",
+      "Lets the YouTube Download button use yt-dlp on this computer, in Chrome, Edge, Brave and Firefox.",
       "",
+      "Windows: put yt-dlp.exe in this folder, open PowerShell here, and run:",
       "  powershell -ExecutionPolicy Bypass -File .\\native-host\\install-host.ps1",
+      "",
+      "macOS: brew install node ffmpeg yt-dlp   then, in Terminal in this folder:",
+      "  bash native-host/install-host.sh",
+      "",
+      "Linux: install node, ffmpeg and yt-dlp, then in a terminal in this folder:",
+      "  bash native-host/install-host.sh",
       "",
       "Full steps: https://github.com/rbettencourt-cbmsp/video-saver#youtube-setup-optional-windows",
       "",

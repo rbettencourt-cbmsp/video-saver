@@ -24,6 +24,8 @@ const os = require("node:os");
 const { spawn, execFile } = require("node:child_process");
 
 const HOST_DIR = __dirname;
+const IS_WIN = process.platform === "win32";
+const IS_MAC = process.platform === "darwin";
 // VS_HOST_CONFIG is for the test suite; Chrome starts the host without it.
 const CONFIG_PATH = process.env.VS_HOST_CONFIG || path.join(HOST_DIR, "config.json");
 const LOG_PATH = path.join(HOST_DIR, "host.log");
@@ -39,7 +41,7 @@ function loadConfig() {
     if (err.code !== "ENOENT") log("couldn't read config.json:", err.message);
   }
   return {
-    ytDlpPath: cfg.ytDlpPath || path.join(HOST_DIR, "..", "yt-dlp.exe"),
+    ytDlpPath: cfg.ytDlpPath || path.join(HOST_DIR, "..", IS_WIN ? "yt-dlp.exe" : "yt-dlp"),
     ffmpegPath: cfg.ffmpegPath || "", // optional: folder or ffmpeg.exe; otherwise PATH is used
     allowedOrigins: Array.isArray(cfg.allowedOrigins) ? cfg.allowedOrigins : [],
     defaultFolder: cfg.defaultFolder || path.join(os.homedir(), "Downloads", "Video Saver"),
@@ -176,9 +178,10 @@ function findFfmpeg(cfg) {
       const p = fs.existsSync(cfg.ffmpegPath) ? cfg.ffmpegPath : "";
       return resolve(p ? { found: true, location: p } : { found: false });
     }
-    const beside = path.join(path.dirname(cfg.ytDlpPath), "ffmpeg.exe");
+    const beside = path.join(path.dirname(cfg.ytDlpPath), IS_WIN ? "ffmpeg.exe" : "ffmpeg");
     if (fs.existsSync(beside)) return resolve({ found: true, location: "" }); // yt-dlp finds it itself
-    execFile("where", ["ffmpeg"], { windowsHide: true }, (err, stdout) => {
+    // Windows: `where`; macOS/Linux: `which` (host.sh puts Homebrew's folders on PATH first).
+    execFile(IS_WIN ? "where" : "which", ["ffmpeg"], { windowsHide: true }, (err, stdout) => {
       resolve(!err && stdout.trim() ? { found: true, location: "" } : { found: false });
     });
   });
@@ -226,7 +229,18 @@ const children = new Map(); // jobId -> ChildProcess
 function killTree(child) {
   if (!child || child.exitCode != null) return;
   // yt-dlp may have started ffmpeg; end the whole tree.
-  execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }, () => {});
+  if (IS_WIN) {
+    execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }, () => {});
+    return;
+  }
+  // macOS/Linux: yt-dlp runs in its own process group (spawned detached), so signal the group.
+  try {
+    process.kill(-child.pid, "SIGTERM");
+  } catch {
+    try {
+      child.kill("SIGTERM");
+    } catch {}
+  }
 }
 
 function shutdown() {
@@ -241,12 +255,39 @@ async function ping(cfg, reqId) {
   send({
     type: "pong", reqId, ok: exists && !!version, ytDlpPath: cfg.ytDlpPath, ytDlpVersion: version,
     ffmpeg: ff.found, defaultFolder: cfg.defaultFolder,
-    error: !exists ? `yt-dlp.exe not found at ${cfg.ytDlpPath}. Edit native-host\\config.json.` : !version ? "yt-dlp.exe did not run." : undefined,
+    error: !exists ? `yt-dlp not found at ${cfg.ytDlpPath}. Run the setup again, or edit native-host/config.json.` : !version ? "yt-dlp did not run." : undefined,
+    platform: process.platform,
   });
 }
 
 function pickFolder(cfg, initial, reqId) {
   const start = safeFolder(initial) || safeFolder(cfg.defaultFolder) || os.homedir();
+  const reply = (stdout) => {
+    const chosen = safeFolder(String(stdout || "").trim().replace(/\/$/, "") || "");
+    send({ type: "folder", reqId, folder: chosen || null, cancelled: !chosen });
+  };
+  const opts = { env: { ...process.env, VS_START_FOLDER: start }, timeout: 10 * 60 * 1000 };
+
+  if (IS_MAC) {
+    // Fixed AppleScript; the start folder comes from an environment variable. Cancel → error -128 → empty.
+    const script = [
+      'set startFolder to POSIX file (system attribute "VS_START_FOLDER")',
+      'POSIX path of (choose folder with prompt "Choose where Video Saver puts YouTube downloads" default location startFolder)',
+    ];
+    return execFile("osascript", script.flatMap((l) => ["-e", l]), opts, (err, stdout) => reply(err ? "" : stdout));
+  }
+  if (!IS_WIN) {
+    // Linux: zenity (GNOME and most desktops), else kdialog (KDE).
+    return execFile("zenity", ["--file-selection", "--directory", "--title=Choose where Video Saver puts YouTube downloads", `--filename=${start}/`], opts, (err, stdout) => {
+      if (!err || err.code === 1) return reply(err ? "" : stdout); // 1 = cancelled
+      execFile("kdialog", ["--getexistingdirectory", start], opts, (err2, stdout2) => {
+        if (err2 && err2.code === "ENOENT") {
+          return send({ type: "folder", reqId, folder: null, cancelled: true, error: "No folder picker found. Install zenity, or set defaultFolder in native-host/config.json." });
+        }
+        reply(err2 ? "" : stdout2);
+      });
+    });
+  }
   // Fixed PowerShell script; the start folder is passed through an environment variable, not the command line.
   const script = [
     "Add-Type -AssemblyName System.Windows.Forms",
@@ -287,7 +328,7 @@ async function download(cfg, msg) {
   if (!folder) return fail("The download folder doesn't exist. Choose another folder.");
   const name = msg.filename ? safeName(msg.filename) : null;
   if (msg.filename && !name) return fail("That file name can't be used.");
-  if (!fs.existsSync(cfg.ytDlpPath)) return fail(`yt-dlp.exe not found at ${cfg.ytDlpPath}. Edit native-host\\config.json.`);
+  if (!fs.existsSync(cfg.ytDlpPath)) return fail(`yt-dlp not found at ${cfg.ytDlpPath}. Run the setup again, or edit native-host/config.json.`);
 
   const ff = await findFfmpeg(cfg);
   const jsRuntime = jsRuntimeFor(await ytDlpVersion(cfg));
@@ -295,7 +336,9 @@ async function download(cfg, msg) {
   log("download", jobId, id, msg.quality, folder);
   send({ type: "started", jobId, videoId: id, ffmpeg: ff.found });
 
-  const child = spawn(cfg.ytDlpPath, args, { windowsHide: true, shell: false });
+  // detached on macOS/Linux puts yt-dlp (and the ffmpeg it starts) in its own process group,
+  // so cancel can stop them together; on Windows taskkill /T does that.
+  const child = spawn(cfg.ytDlpPath, args, { windowsHide: true, shell: false, detached: !IS_WIN });
   children.set(jobId, child);
   let lastFile = "";
   const errors = [];

@@ -7,3 +7,4 @@ native-host/com.videosaver.ytdlp.json
 native-host/host.log
 dist/
 native-host/com.videosaver.ytdlp.firefox.json
+native-host/host.sh

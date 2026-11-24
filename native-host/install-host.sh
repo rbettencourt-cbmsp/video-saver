@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# Registers the Video Saver yt-dlp helper (native messaging host) for the current user
+# on macOS and Linux. (Windows: use install-host.ps1.)
+#
+#   bash native-host/install-host.sh
+#   bash native-host/install-host.sh --yt-dlp /path/to/yt-dlp --ffmpeg /path/to/ffmpeg --folder ~/Movies
+#
+# It writes, in this folder: config.json and host.sh (the launcher browsers start), and it
+# puts com.videosaver.ytdlp.json into each installed browser's NativeMessagingHosts folder,
+# allowing only Video Saver's extension IDs. No sudo; nothing outside your home folder changes.
+set -euo pipefail
+
+HOST_NAME="com.videosaver.ytdlp"
+FIREFOX_ID="video-saver@rbettencourt-cbmsp"
+HOST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EXT_DIR="$(dirname "$HOST_DIR")"
+OS="$(uname -s)"
+
+case "$OS" in
+  Darwin|Linux) ;;
+  *) echo "This script is for macOS and Linux. On Windows, run native-host\\install-host.ps1 instead." >&2; exit 1 ;;
+esac
+
+YTDLP="" FFMPEG="" FOLDER=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --yt-dlp) YTDLP="$2"; shift 2 ;;
+    --ffmpeg) FFMPEG="$2"; shift 2 ;;
+    --folder) FOLDER="$2"; shift 2 ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+# Browsers start helpers with a minimal PATH (on macOS just /usr/bin:/bin:…), which misses
+# Homebrew. Search the usual install places too, and give the launcher the same PATH.
+SEARCH_PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+find_tool() { PATH="$SEARCH_PATH:$PATH" command -v "$1" 2>/dev/null || true; }
+
+# --- Node.js
+NODE="$(find_tool node)"
+if [ -z "$NODE" ]; then
+  echo "Node.js wasn't found. macOS: brew install node   Ubuntu/Debian: sudo apt install nodejs" >&2
+  exit 1
+fi
+
+# --- yt-dlp: --yt-dlp, else next to the extension, else on PATH
+if [ -z "$YTDLP" ]; then
+  for c in "$EXT_DIR/yt-dlp" "$EXT_DIR/yt-dlp_macos" "$EXT_DIR/yt-dlp_linux"; do
+    if [ -f "$c" ]; then YTDLP="$c"; break; fi
+  done
+fi
+[ -z "$YTDLP" ] && YTDLP="$(find_tool yt-dlp)"
+if [ -z "$YTDLP" ] || [ ! -f "$YTDLP" ]; then
+  echo "yt-dlp wasn't found. macOS: brew install yt-dlp   Linux: see the README, or pass --yt-dlp /path/to/yt-dlp" >&2
+  exit 1
+fi
+YTDLP="$(cd "$(dirname "$YTDLP")" && pwd)/$(basename "$YTDLP")"
+chmod +x "$YTDLP" 2>/dev/null || true
+# A yt-dlp downloaded with a browser on macOS is quarantined and won't start; clear that.
+if [ "$OS" = "Darwin" ]; then xattr -d com.apple.quarantine "$YTDLP" 2>/dev/null || true; fi
+if ! YTDLP_VERSION="$("$YTDLP" --version 2>/dev/null)"; then
+  echo "yt-dlp at $YTDLP didn't run. Re-download it, or install it with brew/pipx." >&2
+  exit 1
+fi
+
+# --- ffmpeg (optional)
+if [ -z "$FFMPEG" ] && [ -z "$(find_tool ffmpeg)" ]; then
+  echo "Note: ffmpeg wasn't found. 1080p and MP3 need it (macOS: brew install ffmpeg; Ubuntu: sudo apt install ffmpeg)."
+fi
+
+if [ -z "$FOLDER" ]; then
+  if [ "$OS" = "Darwin" ]; then FOLDER="$HOME/Downloads/Video Saver"; else FOLDER="${XDG_DOWNLOAD_DIR:-$HOME/Downloads}/Video Saver"; fi
+fi
+
+# --- Extension IDs, config.json and the browser manifests (Node writes the JSON safely)
+export VS_EXT_DIR="$EXT_DIR" VS_HOST_DIR="$HOST_DIR" VS_YTDLP="$YTDLP" VS_FFMPEG="$FFMPEG" VS_FOLDER="$FOLDER" VS_FIREFOX_ID="$FIREFOX_ID" VS_HOST_NAME="$HOST_NAME"
+"$NODE" - <<'NODE'
+const fs = require("fs"), path = require("path"), crypto = require("crypto");
+const e = process.env;
+const manifest = JSON.parse(fs.readFileSync(path.join(e.VS_EXT_DIR, "manifest.json"), "utf8"));
+if (!manifest.key) throw new Error("manifest.json has no 'key', so the Chrome extension ID isn't fixed.");
+const der = Buffer.from(manifest.key, "base64");
+const id = crypto.createHash("sha256").update(der).digest("hex").slice(0, 32).replace(/./g, (c) => String.fromCharCode(97 + parseInt(c, 16)));
+const origin = `chrome-extension://${id}/`;
+const launcher = path.join(e.VS_HOST_DIR, "host.sh");
+fs.writeFileSync(path.join(e.VS_HOST_DIR, "config.json"), JSON.stringify({
+  ytDlpPath: e.VS_YTDLP, ffmpegPath: e.VS_FFMPEG || "", defaultFolder: e.VS_FOLDER, allowedOrigins: [origin, e.VS_FIREFOX_ID],
+}, null, 2) + "\n");
+const base = { name: e.VS_HOST_NAME, description: "Video Saver yt-dlp helper", path: launcher, type: "stdio" };
+fs.writeFileSync(path.join(e.VS_HOST_DIR, `${e.VS_HOST_NAME}.json`), JSON.stringify({ ...base, allowed_origins: [origin] }, null, 2) + "\n");
+fs.writeFileSync(path.join(e.VS_HOST_DIR, `${e.VS_HOST_NAME}.firefox.json`), JSON.stringify({ ...base, allowed_extensions: [e.VS_FIREFOX_ID] }, null, 2) + "\n");
+fs.writeFileSync(path.join(e.VS_HOST_DIR, ".extension-id"), id + "\n");
+NODE
+EXT_ID="$(cat "$HOST_DIR/.extension-id")"; rm -f "$HOST_DIR/.extension-id"
+
+# --- Launcher: fixed PATH (so yt-dlp finds ffmpeg), then Node runs host.js
+cat > "$HOST_DIR/host.sh" <<EOF
+#!/bin/sh
+# Started by the browser for Video Saver's YouTube button. Generated by install-host.sh.
+export PATH="$SEARCH_PATH:\$PATH"
+exec "$NODE" "\$(dirname "\$0")/host.js" "\$@"
+EOF
+chmod +x "$HOST_DIR/host.sh" "$HOST_DIR/host.js"
+
+# --- Register with each installed browser (current user only)
+if [ "$OS" = "Darwin" ]; then
+  APP="$HOME/Library/Application Support"
+  CHROMIUM_DIRS=("$APP/Google/Chrome" "$APP/Microsoft Edge" "$APP/BraveSoftware/Brave-Browser" "$APP/Chromium" "$APP/Vivaldi")
+  FIREFOX_DIR="$APP/Mozilla"
+  FIREFOX_SUB="NativeMessagingHosts"
+else
+  CFG="${XDG_CONFIG_HOME:-$HOME/.config}"
+  CHROMIUM_DIRS=("$CFG/google-chrome" "$CFG/microsoft-edge" "$CFG/BraveSoftware/Brave-Browser" "$CFG/chromium" "$CFG/vivaldi")
+  FIREFOX_DIR="$HOME/.mozilla"
+  FIREFOX_SUB="native-messaging-hosts"
+fi
+
+REGISTERED=()
+for d in "${CHROMIUM_DIRS[@]}"; do
+  if [ -d "$d" ]; then
+    mkdir -p "$d/NativeMessagingHosts"
+    cp "$HOST_DIR/$HOST_NAME.json" "$d/NativeMessagingHosts/$HOST_NAME.json"
+    REGISTERED+=("$(basename "$d")")
+  fi
+done
+if [ -d "$FIREFOX_DIR" ]; then
+  mkdir -p "$FIREFOX_DIR/$FIREFOX_SUB"
+  cp "$HOST_DIR/$HOST_NAME.firefox.json" "$FIREFOX_DIR/$FIREFOX_SUB/$HOST_NAME.json"
+  REGISTERED+=("Firefox")
+fi
+
+echo "Installed the Video Saver yt-dlp helper."
+echo "  Extension ID : $EXT_ID (Chrome/Edge/Brave), $FIREFOX_ID (Firefox)"
+echo "  yt-dlp       : $YTDLP (version $YTDLP_VERSION)"
+echo "  Node.js      : $NODE"
+if [ ${#REGISTERED[@]} -gt 0 ]; then
+  echo "  Registered   : ${REGISTERED[*]}"
+else
+  echo "  Registered   : none. No supported browser profile was found. Open your browser once, then run this again."
+fi
+echo "Reload the extension, then open a YouTube video."

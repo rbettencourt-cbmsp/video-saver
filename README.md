@@ -7,7 +7,7 @@ A free, open-source browser extension that saves videos from web pages as a sing
 - Lets you pick the quality
 - Merges separate video and audio into one MP4, with no quality loss
 - Handles long videos (hours), with a download queue that runs 3 at once
-- **YouTube** downloads use [yt-dlp](https://github.com/yt-dlp/yt-dlp) on your own computer (optional, Windows; see [YouTube setup](#youtube-setup-optional-windows))
+- **YouTube** downloads use [yt-dlp](https://github.com/yt-dlp/yt-dlp) on your own computer (optional; Windows, macOS and Linux; see [YouTube setup](#youtube-setup-optional))
 
 > **Please use it responsibly.** Only save videos you own or have permission to keep, and follow the terms of the site and the creator. Video Saver does **not** get around DRM (Netflix, Disney+, Prime Video and similar), logins or paywalls, and never will.
 
@@ -24,7 +24,10 @@ A free, open-source browser extension that saves videos from web pages as a sing
   - [Firefox](#firefox)
   - [Safari](#safari)
 - [How to use](#how-to-use)
-- [YouTube setup (optional, Windows)](#youtube-setup-optional-windows)
+- [YouTube setup (optional)](#youtube-setup-optional)
+  - [Windows](#youtube-setup-on-windows)
+  - [macOS](#youtube-setup-on-macos)
+  - [Linux](#youtube-setup-on-linux)
 - [Updating](#updating)
 - [Troubleshooting](#troubleshooting)
 - [Uninstall](#uninstall)
@@ -37,15 +40,15 @@ A free, open-source browser extension that saves videos from web pages as a sing
 
 | Browser | Video Saver | YouTube button | Download |
 |---|---|---|---|
-| **Google Chrome** | ✅ Supported | ✅ Windows | `video-saver-chrome-<version>.zip` |
-| **Microsoft Edge** | ✅ Supported | ✅ Windows | `video-saver-chrome-<version>.zip` |
-| **Brave** | ✅ Supported | ✅ Windows | `video-saver-chrome-<version>.zip` |
-| **Opera, Vivaldi** and other Chromium browsers | ⚠️ Should work (not tested) | ⚠️ Not set up by the installer | `video-saver-chrome-<version>.zip` |
-| **Firefox** 128 or newer | ✅ Supported | ✅ Windows | `video-saver-firefox-<version>.zip` |
+| **Google Chrome** | ✅ Supported | ✅ Windows, macOS, Linux | `video-saver-chrome-<version>.zip` |
+| **Microsoft Edge** | ✅ Supported | ✅ Windows, macOS, Linux | `video-saver-chrome-<version>.zip` |
+| **Brave** | ✅ Supported | ✅ Windows, macOS, Linux | `video-saver-chrome-<version>.zip` |
+| **Opera, Vivaldi** and other Chromium browsers | ⚠️ Should work (not tested) | ⚠️ Vivaldi on macOS/Linux; otherwise not set up by the installer | `video-saver-chrome-<version>.zip` |
+| **Firefox** 128 or newer | ✅ Supported | ✅ Windows, macOS, Linux | `video-saver-firefox-<version>.zip` |
 | **Safari** (Mac, iPhone, iPad) | ❌ Not supported ([why](#safari)) | ❌ | – |
 | **Mobile browsers** (Android, iOS) | ❌ Not supported | ❌ | – |
 
-All downloads are on the **[Releases page](https://github.com/rbettencourt-cbmsp/video-saver/releases/latest)**. Video Saver isn't in the Chrome Web Store or Firefox Add-ons store, so you install it from the ZIP as described below. It works on Windows, macOS and Linux; only the optional YouTube button is Windows-only.
+All downloads are on the **[Releases page](https://github.com/rbettencourt-cbmsp/video-saver/releases/latest)**. Video Saver isn't in the Chrome Web Store or Firefox Add-ons store, so you install it from the ZIP as described below. It works on Windows, macOS and Linux.
 
 ---
 
@@ -54,7 +57,7 @@ All downloads are on the **[Releases page](https://github.com/rbettencourt-cbmsp
 ### Chrome
 
 1. On the [Releases page](https://github.com/rbettencourt-cbmsp/video-saver/releases/latest), download **`video-saver-chrome-<version>.zip`**
-2. Unzip it into a folder you'll keep, for example `Documents\video-saver`. **Don't delete or move this folder afterwards**: Chrome loads the extension from it
+2. Unzip it into a folder you'll keep, for example `Documents/video-saver`. **Don't delete or move this folder afterwards**: Chrome loads the extension from it
 3. Open `chrome://extensions`
 4. Turn on **Developer mode** (top right)
 5. Click **Load unpacked** and choose the unzipped folder (the one that contains `manifest.json`)
@@ -84,7 +87,7 @@ These are built on the same engine as Chrome, so the Chrome package should work.
 3. Turn on **Developer mode**
 4. Click **Load unpacked** and choose the unzipped folder
 
-The YouTube helper installer only registers Chrome, Edge, Brave and Firefox, so the YouTube button may not work in these browsers.
+The YouTube helper installer registers Chrome, Edge, Brave and Firefox, plus Vivaldi and Chromium on macOS and Linux. The YouTube button may not work in Opera.
 
 ### Firefox
 
@@ -104,7 +107,7 @@ Firefox 128 or newer.
 3. When it's approved (usually within minutes), download the signed **`.xpi`** file Mozilla gives you
 4. Drag the `.xpi` file into Firefox and click **Add**
 
-For the YouTube button in Firefox, also follow [YouTube setup](#youtube-setup-optional-windows). Do it in the folder from **`video-saver-youtube-helper-<version>.zip`**, because the Firefox package doesn't contain the helper.
+For the YouTube button in Firefox, also follow [YouTube setup](#youtube-setup-optional). Do it in the folder from **`video-saver-youtube-helper-<version>.zip`**, because the Firefox package doesn't contain the helper.
 
 ### Safari
 
@@ -112,9 +115,9 @@ For the YouTube button in Firefox, also follow [YouTube setup](#youtube-setup-op
 
 - It has no `downloads` API, so an extension can't save the finished MP4 file
 - It only partly supports watching network requests, which is how Video Saver finds most streams
-- Extensions can only talk to programs packaged inside a signed Mac app, so the YouTube helper can't work as it does on Windows
+- Extensions can only talk to programs packaged inside a signed Mac app, so the YouTube helper can't work as it does in other browsers
 
-Shipping a Safari version also needs a Mac with Xcode and a paid Apple Developer account. On a Mac, use **Chrome**, **Edge**, **Brave** or **Firefox** instead; Video Saver works in all of them on macOS.
+Shipping a Safari version also needs a Mac with Xcode and a paid Apple Developer account. On a Mac, use **Chrome**, **Edge**, **Brave** or **Firefox** instead; Video Saver, including the YouTube button, works in all of them on macOS.
 
 ---
 
@@ -134,11 +137,19 @@ Tips:
 
 ---
 
-## YouTube setup (optional, Windows)
+## YouTube setup (optional)
 
-On YouTube, Video Saver adds a **Download** button under the video. Browsers don't let extensions run programs, so this button hands the job to [yt-dlp](https://github.com/yt-dlp/yt-dlp) on your computer through a small helper. You set this up **once on each PC** (and once per Windows user). Everything else in Video Saver works without it.
+On YouTube, Video Saver adds a **Download** button under the video. Browsers don't let extensions run programs, so this button hands the job to [yt-dlp](https://github.com/yt-dlp/yt-dlp) on your computer through a small helper. You set this up **once on each computer** (and once per user account). Everything else in Video Saver works without it.
 
-Open **PowerShell in the Video Saver folder**: the unzipped Chrome package, or for Firefox the unzipped `video-saver-youtube-helper` package. In File Explorer, Shift + right-click the folder → **Open PowerShell window here**. Then run these commands in order; each one has a copy button.
+Do this in the Video Saver folder: the unzipped Chrome package, or for Firefox the unzipped **`video-saver-youtube-helper`** package. Each command below has a copy button. The **?** button under any YouTube video shows the same steps for your system, also with copy buttons.
+
+When you're done, the panel under a YouTube video shows **Download**, a quality menu, **Options** and **?**, and the status line reads **Ready · yt-dlp …**.
+
+**Using it:** choose **Best available**, **1080p**, **720p**, **480p** or **Audio only (MP3)**, then click **Download**. Under **Options** you can change the file name and the folder (it starts as `Downloads/Video Saver`). You'll get a notification when it's done.
+
+### YouTube setup on Windows
+
+Open **PowerShell in the Video Saver folder**: in File Explorer, Shift + right-click the folder → **Open PowerShell window here**.
 
 **1. Install Node.js** (runs the helper):
 
@@ -172,7 +183,7 @@ Invoke-WebRequest -Uri https://github.com/yt-dlp/yt-dlp/releases/latest/download
 node --version; ffmpeg -version | Select-Object -First 1; .\yt-dlp.exe --version
 ```
 
-**7. Connect the helper to your browsers** (Chrome, Edge, Brave and Firefox; no admin rights needed):
+**7. Connect the helper to your browsers** (no admin rights needed):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\native-host\install-host.ps1
@@ -183,27 +194,94 @@ powershell -ExecutionPolicy Bypass -File .\native-host\install-host.ps1
 - **Chrome, Edge, Brave:** remove Video Saver on the extensions page, then add it again with **Load unpacked**
 - **Firefox:** reload it from `about:debugging`
 
-Under the video you should now see **Download**, a quality menu, **Options** and **?**, and the status line should read **Ready · yt-dlp …**. Click **?** at any time for these same steps with copy buttons.
-
-**Using it:** choose **Best available**, **1080p**, **720p**, **480p** or **Audio only (MP3)**, then click **Download**. Under **Options** you can change the file name and the folder (it starts as `Downloads\Video Saver`). You'll get a notification when it's done.
-
 If `winget` isn't found, install **App Installer** from the Microsoft Store, or download [Node.js](https://nodejs.org) and [ffmpeg](https://www.gyan.dev/ffmpeg/builds/) by hand. If you keep `yt-dlp.exe` somewhere else, add `-YtDlpPath "D:\tools\yt-dlp.exe"` to the step 7 command. If you move the folder, run step 7 again.
+
+### YouTube setup on macOS
+
+Open **Terminal** (Applications → Utilities → Terminal).
+
+**1. Install Homebrew**, the Mac package manager (skip this if you already have it). When it finishes, run the "Next steps" commands it prints:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+**2. Install Node.js, ffmpeg and yt-dlp:**
+
+```bash
+brew install node ffmpeg yt-dlp
+```
+
+**3. Go to the Video Saver folder.** Type `cd ` (with a space), drag the folder from Finder into the Terminal window, and press Return.
+
+**4. Check everything is found.** Each line should print a version:
+
+```bash
+node --version; ffmpeg -version | head -n 1; yt-dlp --version
+```
+
+**5. Connect the helper to your browsers** (no admin password needed):
+
+```bash
+bash native-host/install-host.sh
+```
+
+**6. Reload the extension and the YouTube tab.**
+
+- **Chrome, Edge, Brave:** remove Video Saver on the extensions page, then add it again with **Load unpacked**
+- **Firefox:** reload it from `about:debugging`
+
+Keep yt-dlp up to date with `brew upgrade yt-dlp`. If you move the folder, run step 5 again. To use a yt-dlp that isn't from Homebrew, add `--yt-dlp /path/to/yt-dlp` to the step 5 command (the script clears the macOS download quarantine on it).
+
+### YouTube setup on Linux
+
+These commands are for Ubuntu and Debian; on other distributions, install the same packages with your package manager.
+
+**1. Install Node.js and ffmpeg:**
+
+```bash
+sudo apt install -y nodejs ffmpeg curl python3
+```
+
+**2. Install yt-dlp for your user:**
+
+```bash
+mkdir -p ~/.local/bin && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ~/.local/bin/yt-dlp && chmod a+rx ~/.local/bin/yt-dlp
+```
+
+**3. Open a terminal in the Video Saver folder** (right-click the folder → **Open in Terminal**, or use `cd`).
+
+**4. Check everything is found.** Each line should print a version:
+
+```bash
+node --version; ffmpeg -version | head -n 1; ~/.local/bin/yt-dlp --version
+```
+
+**5. Connect the helper to your browsers:**
+
+```bash
+bash native-host/install-host.sh
+```
+
+**6. Reload the extension and the YouTube tab**, as on macOS.
+
+Keep yt-dlp up to date with `~/.local/bin/yt-dlp -U`. The **Change…** folder button needs `zenity` (GNOME and most desktops) or `kdialog` (KDE). Without them, downloads go to `~/Downloads/Video Saver`.
 
 ---
 
 ## Updating
 
 1. Download the new ZIP from the [Releases page](https://github.com/rbettencourt-cbmsp/video-saver/releases/latest)
-2. Unzip it over your existing folder, replacing the files. Keep `yt-dlp.exe` and `native-host\config.json` if you set up YouTube
+2. Unzip it over your existing folder, replacing the files. If you set up YouTube, keep `yt-dlp.exe` (Windows) and `native-host/config.json`
 3. Reload the extension:
    - **Chrome, Edge, Brave:** click the reload icon on Video Saver on the extensions page
    - **Firefox:** reload it in `about:debugging`, or install the newly signed `.xpi`
 
 The Video Saver popup shows a notice when a new version is out. To keep YouTube working, update yt-dlp now and then:
 
-```powershell
-.\yt-dlp.exe -U
-```
+- **Windows:** `.\yt-dlp.exe -U`
+- **macOS:** `brew upgrade yt-dlp`
+- **Linux:** `~/.local/bin/yt-dlp -U`
 
 ---
 
@@ -215,24 +293,33 @@ The Video Saver popup shows a notice when a new version is out. To keep YouTube 
 | Save fails with "link may have expired" | Reload the page, play the video again, and save again |
 | Firefox: nothing is found on any page | Open the Video Saver popup and click **Allow access to all sites** |
 | Firefox: Video Saver disappeared after a restart | Temporary add-ons are removed when Firefox closes. Load it again, or use the [permanent install](#firefox) |
-| The YouTube panel says "not set up on this PC" | Follow [YouTube setup](#youtube-setup-optional-windows), or click **?** under the video |
-| "This extension isn't allowed to use the yt-dlp helper" | Run step 7 of YouTube setup again, then reload the extension |
-| YouTube download fails with "Precondition check failed" or similar | Update yt-dlp: `.\yt-dlp.exe -U` |
-| YouTube: "ffmpeg wasn't found" | Install ffmpeg (YouTube setup step 2), then restart the browser |
+| The YouTube panel says "not set up on this computer" | Follow [YouTube setup](#youtube-setup-optional), or click **?** under the video |
+| "This extension isn't allowed to use the yt-dlp helper" | Run the "Connect the helper" step of YouTube setup again, then reload the extension |
+| YouTube download fails with "Precondition check failed" or similar | Update yt-dlp (see [Updating](#updating)) |
+| YouTube: "ffmpeg wasn't found" | Install ffmpeg (YouTube setup), then restart the browser |
+| macOS: install script says yt-dlp or Node wasn't found | Run `brew install node ffmpeg yt-dlp`, open a new Terminal window, and try again |
 | A download stopped when I closed a tab | The **Downloads** tab does the work. Reopen it from the popup (**Open downloads**) and the queue carries on |
 
-The YouTube helper writes a log to `native-host\host.log` if you need more detail.
+The YouTube helper writes a log to `native-host/host.log` if you need more detail.
 
 ---
 
 ## Uninstall
 
 1. Remove Video Saver from the browser's extensions page (`about:addons` in Firefox)
-2. If you set up YouTube downloads, remove the helper's registry entries from the Video Saver folder:
+2. If you set up YouTube downloads, unregister the helper. Run this in the Video Saver folder:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\native-host\uninstall-host.ps1
-```
+   **Windows** (PowerShell):
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\native-host\uninstall-host.ps1
+   ```
+
+   **macOS and Linux** (Terminal):
+
+   ```bash
+   bash native-host/uninstall-host.sh
+   ```
 
 3. Delete the Video Saver folder
 
@@ -254,7 +341,7 @@ cd video-saver
 npm install
 ```
 
-Then load the folder with **Load unpacked** (Chromium browsers). For Firefox, build it first and load `dist\firefox`:
+Then load the folder with **Load unpacked** (Chromium browsers). For Firefox, build it first and load `dist/firefox`:
 
 ```powershell
 npm run build:firefox
@@ -270,13 +357,13 @@ npm test
 npm run build
 ```
 
-`npm run build` writes to `dist\`:
+`npm run build` writes to `dist/`:
 
-- `dist\chrome` and `dist\video-saver-chrome-<version>.zip`
-- `dist\firefox` and `dist\video-saver-firefox-<version>.zip`
-- `dist\youtube-helper` and `dist\video-saver-youtube-helper-<version>.zip`
+- `dist/chrome` and `dist/video-saver-chrome-<version>.zip`
+- `dist/firefox` and `dist/video-saver-firefox-<version>.zip`
+- `dist/youtube-helper` and `dist/video-saver-youtube-helper-<version>.zip`
 
-How everything works (detection, formats, the queue, chunked merging, Chrome vs Firefox, the YouTube helper and its security checks) is in [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md).
+How everything works (detection, formats, the queue, chunked merging, Chrome vs Firefox, the YouTube helper on each system and its security checks) is in [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md).
 
 ### Publishing a release
 

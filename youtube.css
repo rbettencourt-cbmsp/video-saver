@@ -133,3 +133,7 @@
 .vs-yt .vs-help-state.vs-ok { color: var(--vs-ok); }
 .vs-yt .vs-help-state.vs-error { color: var(--vs-error); }
 .vs-yt .vs-help-note { color: var(--vs-muted); font-size: 13px; }
+.vs-yt .vs-os-tabs { display: flex; gap: 6px; margin-top: 4px; }
+.vs-yt .vs-os-tabs button { height: 30px; padding: 0 14px; font-size: 13px; }
+.vs-yt .vs-os-tabs button.vs-on,
+.vs-yt .vs-os-tabs button.vs-on:hover:not(:disabled) { background: var(--vs-accent); color: #fff; }

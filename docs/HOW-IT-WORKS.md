@@ -108,6 +108,30 @@ To register by hand, write the host manifest yourself, then:
 reg add "HKCU\Software\Google\Chrome\NativeMessagingHosts\com.videosaver.ytdlp" /ve /t REG_SZ /d "C:\path\to\video-saver\native-host\com.videosaver.ytdlp.json" /f
 ```
 
+### macOS and Linux
+
+`install-host.sh` does the same job without PowerShell or a registry:
+
+- It finds Node, yt-dlp and ffmpeg in the usual places (`/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`, PATH), or uses `--yt-dlp`/`--ffmpeg`. It also clears the macOS quarantine flag on a downloaded yt-dlp
+- It writes `config.json` and a `host.sh` launcher. Browsers start helpers with a minimal PATH, so `host.sh` sets one that includes Homebrew's folders before running `host.js` with your Node. That way yt-dlp can find ffmpeg
+- It copies `com.videosaver.ytdlp.json` into each installed browser's helper folder. Only browsers whose profile folder exists are registered:
+
+| | macOS | Linux |
+|---|---|---|
+| Chrome | `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/` | `~/.config/google-chrome/NativeMessagingHosts/` |
+| Edge | `~/Library/Application Support/Microsoft Edge/NativeMessagingHosts/` | `~/.config/microsoft-edge/NativeMessagingHosts/` |
+| Brave | `~/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts/` | `~/.config/BraveSoftware/Brave-Browser/NativeMessagingHosts/` |
+| Chromium, Vivaldi | `~/Library/Application Support/{Chromium,Vivaldi}/NativeMessagingHosts/` | `~/.config/{chromium,vivaldi}/NativeMessagingHosts/` |
+| Firefox | `~/Library/Application Support/Mozilla/NativeMessagingHosts/` | `~/.mozilla/native-messaging-hosts/` |
+
+In `host.js`, the platform-specific parts are:
+
+- **Stopping a download:** yt-dlp is started in its own process group, and cancel signals the whole group (Windows uses `taskkill /T`)
+- **Finding ffmpeg:** `which` instead of `where`
+- **The folder picker:** `osascript` (`choose folder`) on macOS, and `zenity` or `kdialog` on Linux
+
+The Linux path is tested end to end in WSL (Ubuntu 24.04) with a stand-in yt-dlp. It covers install, registration, ping, download with progress, cancel (which also stops the child process), Firefox-style arguments, rejecting other extensions, and uninstall. The macOS-only parts (Homebrew paths, `osascript`) haven't been run on a Mac yet.
+
 ### Security
 
 - **Only this extension:** Chrome only lets extensions listed in `allowed_origins` start the helper, and `host.js` also checks the caller origin Chrome passes as the first argument
