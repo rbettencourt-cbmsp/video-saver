@@ -36,10 +36,36 @@ async function collect(tab) {
     // Pages like chrome:// or the Web Store can't be scripted; network results still apply.
   }
 
-  // HLS first (usually the real lesson), then newest.
-  return [...found.values()].sort(
-    (a, b) => (a.type === "hls" ? 0 : 1) - (b.type === "hls" ? 0 : 1) || (b.seen || 0) - (a.seen || 0)
-  );
+  const items = [...found.values()];
+  await Promise.all(items.map(classify));
+  return items.sort((a, b) => a.rank - b.rank || (b.seen || 0) - (a.seen || 0));
+}
+
+const PREVIEW_RE = /thumbnail|preview|poster|sprite|storyboard/i;
+
+// Adds a label and sort rank. Full HLS streams (video + audio) first, previews last.
+async function classify(item) {
+  if (item.type !== "hls") {
+    const preview = PREVIEW_RE.test(new URL(item.url).pathname);
+    item.label = preview ? "Preview clip (not the full video)" : extFromUrl(item.url).toUpperCase();
+    item.rank = preview ? 4 : 1;
+    return;
+  }
+  try {
+    const res = await fetch(item.url, { credentials: "include" });
+    const text = await res.text();
+    if (/#EXT-X-STREAM-INF/.test(text)) {
+      item.label = "Full stream (recommended)";
+      item.rank = 0;
+    } else {
+      const hint = /audio/i.test(item.url) ? "audio only" : /video/i.test(item.url) ? "video only" : "single track";
+      item.label = `Stream (${hint})`;
+      item.rank = 2;
+    }
+  } catch {
+    item.label = "Stream (HLS)";
+    item.rank = 3;
+  }
 }
 
 function save(item, tab) {
@@ -67,14 +93,17 @@ function render(items, tab) {
     const li = document.createElement("li");
     const url = document.createElement("div");
     url.className = "url";
-    url.textContent = item.url.length > 160 ? item.url.slice(0, 160) + "…" : item.url;
+    const shown = item.url.split("?")[0];
+    url.textContent = shown.length > 160 ? shown.slice(0, 160) + "…" : shown;
     url.title = item.url;
 
     const meta = document.createElement("div");
     meta.className = "meta";
     const tag = document.createElement("span");
     tag.className = "tag";
-    tag.textContent = item.type === "hls" ? "Stream (HLS)" : extFromUrl(item.url).toUpperCase();
+    tag.textContent = item.label;
+    if (item.rank === 0) tag.classList.add("best");
+    if (item.rank === 4) li.classList.add("dim");
     const btn = document.createElement("button");
     btn.className = "save";
     btn.textContent = "Save";

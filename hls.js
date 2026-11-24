@@ -14,7 +14,14 @@ function parsePlaylist(text, baseUrl) {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (lines[0] !== "#EXTM3U") throw new Error("Not an HLS playlist");
 
-  const abs = (u) => new URL(u, baseUrl).href;
+  // Signed-URL CDNs (e.g. CloudFront) put the signature on the playlist URL and
+  // expect players to reuse it for segments listed without their own query.
+  const base = new URL(baseUrl);
+  const abs = (u) => {
+    const url = new URL(u, base);
+    if (!url.search && base.search && url.origin === base.origin) url.search = base.search;
+    return url.href;
+  };
   const variants = [];
   const audio = [];
   const segments = [];
@@ -33,7 +40,9 @@ function parsePlaylist(text, baseUrl) {
       };
     } else if (line.startsWith("#EXT-X-MEDIA:")) {
       const a = parseAttributes(line.slice(13));
-      if (a.TYPE === "AUDIO" && a.URI) audio.push({ group: a["GROUP-ID"], name: a.NAME, uri: abs(a.URI) });
+      if (a.TYPE === "AUDIO" && a.URI) {
+        audio.push({ group: a["GROUP-ID"], name: a.NAME, isDefault: a.DEFAULT === "YES", uri: abs(a.URI) });
+      }
     } else if (line.startsWith("#EXT-X-KEY:")) {
       const a = parseAttributes(line.slice(11));
       if (a.METHOD && a.METHOD !== "NONE") encrypted = true;
@@ -61,4 +70,10 @@ function bestVariant(variants) {
   return [...variants].sort((a, b) => b.bandwidth - a.bandwidth)[0];
 }
 
-if (typeof module !== "undefined") module.exports = { parsePlaylist, parseAttributes, bestVariant };
+function audioFor(variant, audio) {
+  if (!variant.audioGroup) return null;
+  const group = audio.filter((a) => a.group === variant.audioGroup);
+  return group.find((a) => a.isDefault) || group[0] || null;
+}
+
+if (typeof module !== "undefined") module.exports = { parsePlaylist, parseAttributes, bestVariant, audioFor };

@@ -63,3 +63,32 @@ test("filename helpers", () => {
   assert.equal(extFromUrl("https://a.example/v/clip.WEBM?x=1"), "webm");
   assert.equal(extFromUrl("https://a.example/v/stream"), "mp4");
 });
+
+test("segments inherit the playlist's signed query when they have none", () => {
+  const txt = `#EXTM3U
+#EXTINF:4,
+media-clip0-video-0.ts
+#EXTINF:4,
+own.ts?sig=x
+#EXTINF:4,
+https://elsewhere.example/c.ts`;
+  const pl = parsePlaylist(txt, "https://cdn.example.com/hls/mediaplaylist-video.m3u8?Policy=p&Signature=s&Key-Pair-Id=k");
+  assert.deepEqual(pl.segments, [
+    "https://cdn.example.com/hls/media-clip0-video-0.ts?Policy=p&Signature=s&Key-Pair-Id=k",
+    "https://cdn.example.com/hls/own.ts?sig=x",
+    "https://elsewhere.example/c.ts",
+  ]);
+});
+
+test("audioFor picks the default rendition of the variant's group", () => {
+  const { audioFor } = require("../hls.js");
+  const txt = `#EXTM3U
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",NAME="alt",URI="alt.m3u8"
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",NAME="main",DEFAULT=YES,URI="main.m3u8"
+#EXT-X-STREAM-INF:BANDWIDTH=3200000,AUDIO="a"
+mediaplaylist-video.m3u8`;
+  const pl = parsePlaylist(txt, "https://cdn.example.com/hls/playlist.m3u8?sig=1");
+  const a = audioFor(bestVariant(pl.variants), pl.audio);
+  assert.equal(a.uri, "https://cdn.example.com/hls/main.m3u8?sig=1");
+  assert.equal(audioFor({ audioGroup: null }, pl.audio), null);
+});

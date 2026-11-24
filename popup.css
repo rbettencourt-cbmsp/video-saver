@@ -10,3 +10,5 @@ li { border: 1px solid #ddd; border-radius: 6px; padding: 8px; margin-bottom: 6p
 button { cursor: pointer; border: 1px solid #888; border-radius: 4px; background: #fff; padding: 3px 10px; }
 button.save { background: #1a73e8; color: #fff; border-color: #1a73e8; }
 footer { color: #888; font-size: 11px; margin-top: 8px; }
+.tag.best { background: #e3f5e1; color: #1e6b1a; font-weight: 600; }
+li.dim { opacity: 0.6; }

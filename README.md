@@ -22,7 +22,7 @@ It does **not** handle encrypted or DRM-protected streams, and that is on purpos
 ## Use
 
 1. Open the page and start playing the video
-2. Click the extension icon; the sources it found are listed (streams first)
+2. Click the extension icon. Pick the item marked **Full stream (recommended)**. Items marked *Preview clip* are short thumbnail animations, not the video
 3. Click **Save**
 
 ## Convert .ts to .mp4 (optional)
@@ -33,7 +33,7 @@ ffmpeg -i input.ts -c copy output.mp4
 
 ## Known limitations
 
-- HLS streams with audio in a separate track save without sound (the saver warns you)
+- When a stream keeps audio in a separate track, the video and audio are saved as two files; the saver shows the `ffmpeg` command to merge them
 - Byte-range HLS isn't supported yet
 - The whole video is held in memory before saving, so very long videos use a lot of RAM
 
