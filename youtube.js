@@ -103,22 +103,58 @@
     ui.quality.addEventListener("change", () => chrome.storage.local.set({ ytQuality: ui.quality.value }));
   }
 
-  // "?" panel: explains the one-time, per-PC setup the YouTube button needs.
-  const SETUP_COMMAND = "powershell -ExecutionPolicy Bypass -File .\\native-host\\install-host.ps1";
+  // "?" panel: the one-time, per-PC setup the YouTube button needs, as copyable
+  // PowerShell commands in the order to run them.
+  const SETUP_STEPS = [
+    {
+      title: "Install Node.js (runs the helper)",
+      commands: ["winget install -e --id OpenJS.NodeJS.LTS"],
+    },
+    {
+      title: "Install ffmpeg (needed for 1080p and MP3)",
+      commands: ["winget install -e --id Gyan.FFmpeg"],
+    },
+    {
+      title: "Close PowerShell, then open a new one in the Video Saver folder (Shift + right-click the folder → Open PowerShell window here), so the new programs are found.",
+      commands: [],
+    },
+    {
+      title: "Download yt-dlp.exe into the folder (skip if it's already there), then make sure it's up to date",
+      commands: [
+        "Invoke-WebRequest -Uri https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe -OutFile yt-dlp.exe",
+        ".\\yt-dlp.exe -U",
+      ],
+    },
+    {
+      title: "Check everything is found (each line should print a version)",
+      commands: ["node --version; ffmpeg -version | Select-Object -First 1; .\\yt-dlp.exe --version"],
+    },
+    {
+      title: "Connect the helper to Chrome",
+      commands: ["powershell -ExecutionPolicy Bypass -File .\\native-host\\install-host.ps1"],
+    },
+    {
+      title: "In chrome://extensions, remove Video Saver and add it again with Load unpacked, then reload this page.",
+      commands: [],
+    },
+  ];
 
-  function buildHelp() {
-    ui.helpState = el("div", { class: "vs-help-state" });
-    const copy = el("button", { text: "Copy", title: "Copy the setup command" });
+  function copyRow(command) {
+    const copy = el("button", { text: "Copy", title: "Copy this command" });
     copy.addEventListener("click", async () => {
       try {
-        await navigator.clipboard.writeText(SETUP_COMMAND);
+        await navigator.clipboard.writeText(command);
         copy.textContent = "Copied ✓";
       } catch {
         copy.textContent = "Select and copy it";
       }
       setTimeout(() => (copy.textContent = "Copy"), 2000);
     });
-    const link = (href, text) => el("a", { href, target: "_blank", rel: "noopener", text });
+    return el("div", { class: "vs-cmd" }, el("code", { text: command }), copy);
+  }
+
+  function buildHelp() {
+    ui.helpState = el("div", { class: "vs-help-state" });
     return el(
       "div",
       { class: "vs-help", role: "region", "aria-label": "Setup help" },
@@ -128,19 +164,12 @@
           "through a small helper. The rest of Video Saver works without it.",
       }),
       ui.helpState,
-      el("div", { class: "vs-help-sub", text: "On every new PC (once per Windows user):" }),
-      el(
-        "ol",
-        {},
-        el("li", {}, "Install ", link("https://nodejs.org", "Node.js"), "."),
-        el("li", {}, "Put ", el("code", { text: "yt-dlp.exe" }), " in the Video Saver folder and keep it current with ",
-          el("code", { text: "yt-dlp.exe -U" }), "."),
-        el("li", {}, "Optional: install ", link("https://ffmpeg.org/download.html", "ffmpeg"), " (needed for 1080p and MP3)."),
-        el("li", {}, "In the Video Saver folder (Shift + right-click → Open PowerShell window here), run:",
-          el("div", { class: "vs-cmd" }, el("code", { text: SETUP_COMMAND }), copy)),
-        el("li", {}, "Remove and re-add the extension with Load unpacked, then reload this page.")
-      ),
-      el("p", { class: "vs-help-note", text: "Moved the Video Saver folder? Run the command again. Full details are in the README." })
+      el("div", { class: "vs-help-sub", text: "On a new PC, run these in PowerShell, in order:" }),
+      el("ol", {}, ...SETUP_STEPS.map((s) => el("li", {}, el("div", { text: s.title }), ...s.commands.map(copyRow)))),
+      el("p", {
+        class: "vs-help-note",
+        text: "Moved the Video Saver folder? Run step 6 again. If winget isn't found, install “App Installer” from the Microsoft Store. Full details are in the README.",
+      })
     );
   }
 

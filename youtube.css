@@ -125,8 +125,9 @@
   font-family: Consolas, "Courier New", monospace; font-size: 13px; background: var(--vs-code);
   border-radius: 4px; padding: 1px 5px; user-select: all;
 }
-.vs-yt .vs-cmd { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
-.vs-yt .vs-cmd code { padding: 6px 8px; }
+.vs-yt .vs-cmd { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.vs-yt .vs-cmd code { padding: 6px 8px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.vs-yt .vs-cmd button { flex: none; }
 .vs-yt .vs-cmd button { height: 30px; padding: 0 14px; font-size: 13px; }
 .vs-yt .vs-help-state { font-size: 14px; font-weight: 600; }
 .vs-yt .vs-help-state.vs-ok { color: var(--vs-ok); }
