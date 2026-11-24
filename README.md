@@ -37,7 +37,7 @@ It does **not** handle encrypted or DRM-protected streams, and that is on purpos
 npm test
 ```
 
-To check the MP4 merge in a real browser, run `python -m http.server 8765` in this folder and open `http://127.0.0.1:8765/test/mux.html`. It should end with `RESULT: PASS`.
+To test in a real browser, run `python -m http.server 8765` in this folder and open `http://127.0.0.1:8765/test/mux.html` (merge only) and `http://127.0.0.1:8765/test/saver.html` (full save flow against a fake signed HLS stream). Both should end with `RESULT: PASS`.
 
 ## Licenses
 

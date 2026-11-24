@@ -125,12 +125,11 @@ async function run() {
     mp4 = await toMp4(video, audio, (msg) => setStatus(msg));
   } catch (err) {
     console.error(err);
-    $("warn").textContent = `Couldn't merge into MP4 (${err.message.split("
-")[0]}). Saving the original files instead.`;
+    $("warn").textContent = `Couldn't merge into MP4 (${err.message.split("\n")[0]}). Saving the original files instead.`;
   }
 
   if (mp4) {
-    setStatus(`Choose where to save the MP4 (${mb(mp4)})…`);
+    setStatus(`Choose where to save the MP4 (${mb(mp4)})â€¦`);
     await saveBlob(mp4, `${baseName}.mp4`);
     setStatus("Saved. You can close this tab.");
     return;
@@ -138,16 +137,16 @@ async function run() {
 
   // Fallback: save the raw tracks as they came from the server.
   if (!audio) {
-    setStatus(`Choose where to save the file (${mb(video.blob)})…`);
+    setStatus(`Choose where to save the file (${mb(video.blob)})â€¦`);
     await saveBlob(video.blob, `${baseName}.${video.ext}`);
     setStatus("Saved. You can close this tab.");
     return;
   }
   const vName = `${baseName}.video.${video.ext}`;
   const aName = `${baseName}.audio.${audio.ext}`;
-  setStatus(`Choose where to save the video track (${mb(video.blob)})…`);
+  setStatus(`Choose where to save the video track (${mb(video.blob)})â€¦`);
   await saveBlob(video.blob, vName);
-  setStatus(`Choose where to save the audio track (${mb(audio.blob)})…`);
+  setStatus(`Choose where to save the audio track (${mb(audio.blob)})â€¦`);
   await saveBlob(audio.blob, aName);
   setStatus("Saved video and audio as two files. You can close this tab.");
   const cmd = document.createElement("pre");

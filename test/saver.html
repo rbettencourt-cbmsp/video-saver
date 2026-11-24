@@ -1,0 +1,95 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>saver test</title>
+<!-- End-to-end test of saver.js. Serve the repo root and open /test/saver.html.
+     Builds a fake HLS stream (master + separate video/audio, signed query) with ffmpeg.wasm,
+     serves it via a stubbed fetch, stubs chrome.downloads, and checks the saved MP4. -->
+<h1 id="title"></h1><code id="src"></code><progress id="bar"></progress>
+<p id="status"></p><p id="warn"></p>
+<pre id="out">building fixture…</pre>
+<script src="../common.js"></script>
+<script src="../hls.js"></script>
+<script type="module">
+import { FFmpeg } from "../vendor/ffmpeg/index.js";
+const out = document.getElementById("out");
+const say = (s) => (out.textContent += "\n" + s);
+const core = { coreURL: new URL("../vendor/core/ffmpeg-core.js", import.meta.url).href,
+               wasmURL: new URL("../vendor/core/ffmpeg-core.wasm", import.meta.url).href };
+const SIG = "?Policy=p&Signature=s&Key-Pair-Id=k";
+const BASE = "https://cdn.fake.test/hls/";
+
+if (!location.search) location.search = "?" + new URLSearchParams({ url: BASE + "playlist.m3u8" + SIG, name: "Lesson: Test / 1" });
+
+try {
+  // 1. Fixture: HLS video-only and audio-only renditions.
+  const ff = new FFmpeg();
+  await ff.load(core);
+  await ff.exec(["-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=4", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-g", "25",
+                 "-f", "hls", "-hls_time", "1", "-hls_list_size", "0", "-hls_segment_filename", "v%d.ts", "video.m3u8"]);
+  await ff.exec(["-f", "lavfi", "-i", "sine=frequency=440:duration=4", "-c:a", "aac",
+                 "-f", "hls", "-hls_time", "1", "-hls_list_size", "0", "-hls_segment_filename", "a%d.ts", "audio.m3u8"]);
+  const files = new Map();
+  for (const { name, isDir } of await ff.listDir("/")) {
+    if (!isDir && /\.(ts|m3u8)$/.test(name)) files.set(name, await ff.readFile(name));
+  }
+  ff.terminate();
+  files.set("playlist.m3u8", new TextEncoder().encode(`#EXTM3U
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="en",DEFAULT=YES,URI="audio.m3u8"
+#EXT-X-STREAM-INF:BANDWIDTH=3200000,RESOLUTION=320x240,AUDIO="aud"
+video.m3u8
+`));
+  say(`fixture: ${[...files.keys()].join(", ")}`);
+
+  // 2. Fake network: only signed URLs on the fake CDN succeed (mimics CloudFront 403s).
+  const realFetch = window.fetch;
+  const requested = [];
+  window.fetch = async (url, opts) => {
+    const u = new URL(url, location.href);
+    if (u.origin !== "https://cdn.fake.test") return realFetch(url, opts);
+    requested.push(u.pathname);
+    const name = u.pathname.replace("/hls/", "");
+    if (u.search !== SIG) return new Response("forbidden", { status: 403 });
+    return files.has(name) ? new Response(files.get(name)) : new Response("nf", { status: 404 });
+  };
+
+  // 3. Stub chrome.downloads.
+  const saved = [];
+  let onChanged = [];
+  window.chrome = { runtime: {}, downloads: {
+    download({ url, filename }, cb) {
+      fetch(url).then((r) => r.blob()).then((blob) => {
+        saved.push({ filename, blob });
+        cb(saved.length);
+        setTimeout(() => onChanged.forEach((l) => l({ id: saved.length, state: { current: "complete" } })), 0);
+      });
+    },
+    onChanged: { addListener: (l) => onChanged.push(l), removeListener: (l) => (onChanged = onChanged.filter((x) => x !== l)) },
+  } };
+
+  // 4. Run the real saver.
+  await import("../saver.js");
+  const status = document.getElementById("status");
+  for (let i = 0; i < 120 && !/Saved|fail|error|Couldn't/i.test(status.textContent + status.className); i++) {
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  say(`status: ${status.textContent} ${document.getElementById("warn").textContent}`);
+  say(`requests: ${requested.length}, saved: ${saved.map((s) => `${s.filename} (${s.blob.size} B)`).join(", ")}`);
+
+  // 5. Probe the result.
+  const mp4 = saved[0];
+  const probe = new FFmpeg();
+  const lines = [];
+  probe.on("log", ({ message }) => lines.push(message));
+  await probe.load(core);
+  await probe.writeFile("r.mp4", new Uint8Array(await mp4.blob.arrayBuffer()));
+  await probe.exec(["-i", "r.mp4"]);
+  probe.terminate();
+  const info = lines.filter((l) => /Stream #|Duration/.test(l)).join("\n");
+  say(info);
+  const ok = saved.length === 1 && mp4.filename.endsWith(".mp4") && /Video: h264/.test(info) && /Audio: aac/.test(info)
+    && /Duration: 00:00:0[34]/.test(info);
+  say(ok ? "RESULT: PASS" : "RESULT: FAIL");
+} catch (e) {
+  say("RESULT: ERROR " + (e.stack || e));
+}
+</script>
