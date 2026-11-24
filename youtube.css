@@ -57,3 +57,27 @@ html[dark] .vs-yt .vs-link { color: #3ea6ff; }
 .vs-yt .vs-status.vs-error { color: #cc0000; }
 html[dark] .vs-yt .vs-status.vs-error { color: #ff6b6b; }
 .vs-yt .vs-status.vs-ok { color: #2ba640; }
+
+/* "?" setup help */
+.vs-yt .vs-help-btn { width: 36px; padding: 0; font-weight: 700; font-size: 16px; }
+.vs-yt.vs-show-help button.vs-help-btn,
+.vs-yt.vs-show-help button.vs-help-btn:hover:not(:disabled) { background: #065fd4; color: #fff; }
+.vs-yt .vs-help { display: none; flex-direction: column; gap: 6px; max-width: 640px; padding: 12px 14px;
+  border-radius: 12px; background: var(--vs-chip); font-size: 13px; line-height: 1.45; }
+.vs-yt.vs-show-help .vs-help { display: flex; }
+.vs-yt .vs-help p { margin: 0; color: var(--vs-text); }
+.vs-yt .vs-help-title { font-weight: 600; font-size: 14px; }
+.vs-yt .vs-help-sub { font-weight: 500; margin-top: 2px; }
+.vs-yt .vs-help ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.vs-yt .vs-help a { color: #065fd4; }
+html[dark] .vs-yt .vs-help a { color: #3ea6ff; }
+.vs-yt .vs-help code { font-family: Consolas, "Courier New", monospace; font-size: 12px; background: var(--vs-line);
+  border-radius: 4px; padding: 1px 4px; user-select: all; }
+.vs-yt .vs-cmd { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+.vs-yt .vs-cmd code { padding: 6px 8px; }
+.vs-yt .vs-cmd button { height: 28px; padding: 0 12px; font-size: 12px; }
+.vs-yt .vs-help-state { font-size: 12px; font-weight: 500; }
+.vs-yt .vs-help-state.vs-ok { color: #2ba640; }
+.vs-yt .vs-help-state.vs-error { color: #cc0000; }
+html[dark] .vs-yt .vs-help-state.vs-error { color: #ff6b6b; }
+.vs-yt .vs-help-note { color: var(--vs-muted) !important; font-size: 12px; }

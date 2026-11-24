@@ -1,0 +1,38 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>YouTube panel preview</title>
+<!-- Visual check for youtube.js/youtube.css. Serve the repo root and open
+     /test/youtube.html?state=missing (helper not installed) or ?state=ok.
+     The page renames its URL to /watch?v=… so the panel thinks it's on a video. -->
+<link rel="stylesheet" href="../youtube.css">
+<style>
+  body { font-family: Roboto, Arial, sans-serif; margin: 24px; background: #fff; }
+  .player { width: 640px; height: 220px; background: #000; border-radius: 12px; }
+  h1 { font-size: 20px; }
+</style>
+<ytd-watch-flexy>
+  <div class="player"></div>
+  <div id="below">
+    <ytd-watch-metadata><h1>Big Buck Bunny 60fps 4K - Official Blender Foundation Short Film</h1></ytd-watch-metadata>
+  </div>
+</ytd-watch-flexy>
+<script>
+  const state = new URLSearchParams(location.search).get("state") || "missing";
+  const stored = {};
+  window.chrome = {
+    runtime: {
+      sendMessage: async (m) => {
+        if (m.type === "ytPing") {
+          return state === "ok"
+            ? { ok: true, ytDlpVersion: "2026.11.23", ffmpeg: true, defaultFolder: "C:\\Users\\me\\Downloads\\Video Saver" }
+            : { ok: false, notInstalled: true, error: "Specified native messaging host not found." };
+        }
+        return {};
+      },
+      onMessage: { addListener() {} },
+    },
+    storage: { local: { get: async () => ({ ...stored }), set: async (o) => Object.assign(stored, o) } },
+  };
+  history.replaceState(null, "", "/watch?v=YE7VzlLtp-4");
+</script>
+<script src="../youtube.js"></script>

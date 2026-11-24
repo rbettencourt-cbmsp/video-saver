@@ -75,11 +75,17 @@
     ui.folderBtn = el("button", { text: "Change…", onclick: chooseFolder });
     ui.bar = el("div");
     ui.status = el("div", { class: "vs-status" });
+    ui.helpBtn = el("button", {
+      class: "vs-help-btn", text: "?", title: "How YouTube downloads work / setup on a new PC",
+      "aria-label": "Setup help", "aria-expanded": "false", onclick: () => toggleHelp(),
+    });
+    ui.help = buildHelp();
 
     panel = el(
       "div",
       { class: "vs-yt", id: "video-saver-yt" },
-      el("div", { class: "vs-row" }, ui.download, ui.quality, ui.cancel, ui.optionsToggle),
+      el("div", { class: "vs-row" }, ui.download, ui.quality, ui.cancel, ui.optionsToggle, ui.helpBtn),
+      ui.help,
       el(
         "div",
         { class: "vs-options" },
@@ -95,6 +101,65 @@
       ui.folderText.title = ui.folderText.textContent;
     });
     ui.quality.addEventListener("change", () => chrome.storage.local.set({ ytQuality: ui.quality.value }));
+  }
+
+  // "?" panel: explains the one-time, per-PC setup the YouTube button needs.
+  const SETUP_COMMAND = "powershell -ExecutionPolicy Bypass -File .\\native-host\\install-host.ps1";
+
+  function buildHelp() {
+    ui.helpState = el("div", { class: "vs-help-state" });
+    const copy = el("button", { text: "Copy", title: "Copy the setup command" });
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(SETUP_COMMAND);
+        copy.textContent = "Copied ✓";
+      } catch {
+        copy.textContent = "Select and copy it";
+      }
+      setTimeout(() => (copy.textContent = "Copy"), 2000);
+    });
+    const link = (href, text) => el("a", { href, target: "_blank", rel: "noopener", text });
+    return el(
+      "div",
+      { class: "vs-help", role: "region", "aria-label": "Setup help" },
+      el("div", { class: "vs-help-title", text: "YouTube downloads need a one-time setup on each PC" }),
+      el("p", {
+        text: "Chrome can't run programs on its own, so this button hands the download to yt-dlp.exe on this computer " +
+          "through a small helper. The rest of Video Saver works without it.",
+      }),
+      ui.helpState,
+      el("div", { class: "vs-help-sub", text: "On every new PC (once per Windows user):" }),
+      el(
+        "ol",
+        {},
+        el("li", {}, "Install ", link("https://nodejs.org", "Node.js"), "."),
+        el("li", {}, "Put ", el("code", { text: "yt-dlp.exe" }), " in the Video Saver folder and keep it current with ",
+          el("code", { text: "yt-dlp.exe -U" }), "."),
+        el("li", {}, "Optional: install ", link("https://ffmpeg.org/download.html", "ffmpeg"), " (needed for 1080p and MP3)."),
+        el("li", {}, "In the Video Saver folder (Shift + right-click → Open PowerShell window here), run:",
+          el("div", { class: "vs-cmd" }, el("code", { text: SETUP_COMMAND }), copy)),
+        el("li", {}, "Remove and re-add the extension with Load unpacked, then reload this page.")
+      ),
+      el("p", { class: "vs-help-note", text: "Moved the Video Saver folder? Run the command again. Full details are in the README." })
+    );
+  }
+
+  function toggleHelp(open = !panel.classList.contains("vs-show-help")) {
+    panel.classList.toggle("vs-show-help", open);
+    ui.helpBtn.setAttribute("aria-expanded", String(open));
+  }
+
+  function showHelperState() {
+    if (!ui.helpState) return;
+    if (helper?.ok) {
+      ui.helpState.textContent = `This PC: set up ✓ · yt-dlp ${helper.ytDlpVersion} · ffmpeg ${helper.ffmpeg ? "found" : "not found (1080p/MP3 limited)"}`;
+      ui.helpState.className = "vs-help-state vs-ok";
+    } else {
+      ui.helpState.textContent = helper?.notInstalled
+        ? "This PC: not set up yet. Follow the steps below."
+        : `This PC: helper found but not working (${helper?.error || "no answer"}).`;
+      ui.helpState.className = "vs-help-state vs-error";
+    }
   }
 
   function setStatus(text, kind = "") {
@@ -124,14 +189,16 @@
 
   async function checkHelper() {
     helper = await send({ type: "ytPing" });
+    showHelperState();
     if (!helper?.ok) {
       ui.download.disabled = true;
       setStatus(
         helper?.notInstalled
-          ? "The yt-dlp helper isn't installed. Run native-host\\install-host.ps1 (see the README), then reload this page."
-          : `yt-dlp helper problem: ${helper?.error || "no answer"}`,
+          ? "YouTube downloads aren't set up on this PC yet. See the steps above (or click ?)."
+          : `yt-dlp helper problem: ${helper?.error || "no answer"}. Click ? for setup help.`,
         "error"
       );
+      if (helper?.notInstalled) toggleHelp(true);
       return;
     }
     ui.download.disabled = false;
