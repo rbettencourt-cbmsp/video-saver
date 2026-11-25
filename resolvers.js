@@ -60,7 +60,12 @@ async function resolveLoom(id, fetchOk) {
   for (const endpoint of ["transcoded-url", "raw-url"]) {
     try {
       const data = await fetchOk(`https://www.loom.com/api/campaigns/sessions/${encodeURIComponent(id)}/${endpoint}`, "json", post);
-      if (data?.url) return { url: data.url, kind: /\.m3u8(\?|$)/i.test(new URL(data.url).pathname) ? "hls" : "file" };
+      if (data?.url) {
+        // Loom answers with an HLS playlist, a DASH manifest or a plain MP4.
+        const path = new URL(data.url).pathname;
+        const kind = /\.m3u8$/i.test(path) ? "hls" : /\.mpd$/i.test(path) ? "dash" : "file";
+        return { url: data.url, kind };
+      }
     } catch {}
   }
   throw new Error("Loom didn't return a stream for this video. Play it on the page, then use the stream that appears.");

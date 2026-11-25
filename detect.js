@@ -30,6 +30,29 @@
     }
   }
 
+  // The JSON text of the object in `json` whose id is `id` (without its child lessons), or null.
+  function findById(json, id) {
+    let data;
+    try {
+      data = JSON.parse(json);
+    } catch {
+      return null;
+    }
+    const stack = [data];
+    while (stack.length) {
+      const node = stack.pop();
+      if (!node || typeof node !== "object") continue;
+      if (!Array.isArray(node) && node.id === id) {
+        // Keep the lesson's own fields; drop nested lists (sub-lessons, comments).
+        const own = {};
+        for (const [k, v] of Object.entries(node)) if (!Array.isArray(v)) own[k] = v;
+        return JSON.stringify(own);
+      }
+      for (const v of Array.isArray(node) ? node : Object.values(node)) if (v && typeof v === "object") stack.push(v);
+    }
+    return null;
+  }
+
   function detect() {
     const found = [];
     const here = location.href;
@@ -55,10 +78,20 @@
     }
     for (const a of document.querySelectorAll("a[href*='loom.com/share/'], a[href*='vimeo.com/']")) fromText(a.href, hits);
 
-    // 3. Page data (Next.js and similar), e.g. lesson video links on course sites
+    // 3. Page data (Next.js and similar), e.g. lesson video links on course sites.
+    // Course pages (Skool) keep every lesson's video link here, not just the open one,
+    // so: use only the current lesson's entry when the URL names it, and otherwise
+    // only fall back to page data when the page shows no player of its own.
+    const playerOnPage = hits.length > 0 || found.length > 0;
+    const pageHits = [];
+    const lessonId = new URL(here).searchParams.get("md");
     for (const s of document.querySelectorAll("script#__NEXT_DATA__, script[type='application/json'], script[type='application/ld+json']")) {
-      if (s.textContent.length < 5_000_000) fromText(s.textContent, hits);
+      if (s.textContent.length >= 5_000_000) continue;
+      const lesson = lessonId && findById(s.textContent, lessonId);
+      if (lesson) fromText(lesson, pageHits);
+      else if (!lessonId && !playerOnPage) fromText(s.textContent, pageHits);
     }
+    hits.push(...pageHits);
 
     // The player page itself (we're inside the player iframe)
     fromText(here, hits);

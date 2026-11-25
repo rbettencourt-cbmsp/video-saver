@@ -73,7 +73,7 @@
 
   function scan() {
     const items = globalThis.videoSaverDetect?.() || [];
-    show(items.filter((i) => i.type !== "youtube").length);
+    show(items.length);
   }
 
   chrome.runtime.onMessage.addListener((msg) => {

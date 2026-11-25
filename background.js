@@ -78,11 +78,35 @@ chrome.webRequest.onHeadersReceived.addListener(
   ["responseHeaders"]
 );
 
-// A full page load starts a fresh list; in-app (pushState) navigation keeps it.
+// A full page load starts a fresh list.
+const lastUrl = new Map(); // tabId -> top frame URL without #hash
+const noHash = (u) => String(u || "").split("#")[0];
 chrome.webNavigation.onCommitted.addListener((d) => {
-  if (d.frameId === 0) clearTab(d.tabId);
+  if (d.frameId !== 0) return;
+  lastUrl.set(d.tabId, noHash(d.url));
+  clearTab(d.tabId);
+});
+// In-app navigation (pushState, e.g. the next lesson on a course site) is a new page too:
+// forget streams from the previous one. Streams seen just before the URL changed are kept,
+// because some sites load the next video first and update the address after.
+const NAV_GRACE_MS = 1500;
+chrome.webNavigation.onHistoryStateUpdated.addListener((d) => {
+  if (d.frameId !== 0) return;
+  const url = noHash(d.url);
+  if (lastUrl.get(d.tabId) === url) return;
+  lastUrl.set(d.tabId, url);
+  const cutoff = Date.now() - NAV_GRACE_MS;
+  serialize(async () => {
+    const k = key(d.tabId);
+    const { [k]: list = [] } = await chrome.storage.session.get(k);
+    const kept = list.filter((m) => (m.seen || 0) >= cutoff);
+    if (kept.length === list.length) return;
+    await chrome.storage.session.set({ [k]: kept });
+    setBadge(d.tabId, kept.length);
+  });
 });
 chrome.tabs.onRemoved.addListener((tabId) => {
+  lastUrl.delete(tabId);
   serialize(() => chrome.storage.session.remove(key(tabId)));
 });
 
@@ -144,10 +168,15 @@ const handlers = {
     mutateJobs((jobs) => {
       const j = jobs.find((x) => x.id === id);
       if (!j) return;
-      if (j.status === "queued") Object.assign(j, { status: "cancelled", message: "Cancelled" });
+      if (j.kind === "youtube") {
+        if (ytJobs.has(j.id)) ytJobs.get(j.id).port.postMessage({ type: "cancel", jobId: j.id });
+        else Object.assign(j, { status: "cancelled", message: "Cancelled" });
+      } else if (j.status === "queued") Object.assign(j, { status: "cancelled", message: "Cancelled" });
       else if (j.status === "running") j.status = "cancelling";
     }),
   retryJob: async ({ id }) => {
+    const yt = (await getJobs()).find((x) => x.id === id && x.kind === "youtube" && ["error", "cancelled"].includes(x.status));
+    if (yt) return startYt(yt.yt, null, yt.id);
     await mutateJobs((jobs) => {
       const j = jobs.find((x) => x.id === id);
       if (j && ["error", "cancelled"].includes(j.status)) {
@@ -263,63 +292,112 @@ function ytForward(tabId, { type: hostType, ...rest }) {
   if (tabId != null) chrome.tabs.sendMessage(tabId, { ...rest, type: "yt:event", hostType }).catch(() => {});
 }
 
+// Starts one yt-dlp download. With `queue`, it's also a job in the download queue
+// (kind "youtube"; background.js runs it, not the downloads tab) so it shows up there.
+async function startYt({ url, quality, folder, filename, title, useSignIn, queue, pageUrl }, tab, retryOf) {
+  const id = ytVideoId(url);
+  if (!id) return { error: "That isn't a YouTube video page." };
+  if (!YT_QUALITIES.includes(quality)) return { error: "Unknown quality option." };
+  let cookies;
+  if (useSignIn) {
+    cookies = await ytCookieText(tab);
+    if (!cookies) {
+      return { error: "You're not signed in to YouTube in this window. Sign in, reload the page, and try again." };
+    }
+  }
+  const jobId = retryOf || crypto.randomUUID();
+  const tabId = queue ? null : tab?.id; // queued jobs report through the queue, not the page panel
+  const name = String(title || "YouTube video").slice(0, 200);
+  const patchJob = (patch) =>
+    queue &&
+    mutateJobs((jobs) => {
+      const j = jobs.find((x) => x.id === jobId);
+      if (j) Object.assign(j, patch);
+    });
+  if (queue) {
+    const spec = { url: `https://www.youtube.com/watch?v=${id}`, quality, folder, filename, title: name, useSignIn, queue: true, pageUrl };
+    const fields = {
+      status: "running", progress: 0, bytes: 0, speed: 0, message: "Starting yt-dlp…", error: "", warn: "",
+      kind: "youtube", name, url: spec.url, pageUrl, qualityLabel: quality === "best" ? "Best" : quality === "audio" ? "MP3" : `${quality}p`, yt: spec,
+    };
+    await mutateJobs((jobs) => {
+      const j = jobs.find((x) => x.id === jobId);
+      if (j) Object.assign(j, fields);
+      else jobs.push({ id: jobId, created: Date.now(), ...fields });
+    });
+  }
+  let port;
+  try {
+    port = chrome.runtime.connectNative(YT_HOST);
+  } catch (err) {
+    await patchJob({ status: "error", error: "The YouTube helper isn't installed (see the README)." });
+    return { error: err.message, notInstalled: true };
+  }
+  const job = { port, tabId, title: name };
+  ytJobs.set(jobId, job);
+  const end = () => {
+    ytJobs.delete(jobId);
+    try {
+      port.disconnect();
+    } catch {}
+  };
+  const failText = (e) =>
+    /confirm you.?re not a bot|Sign in to confirm/i.test(e || "")
+      ? "YouTube wants a sign-in check. Turn off a VPN, or turn on “Use my YouTube sign-in” in the Download panel on youtube.com, then Retry."
+      : e;
+  port.onMessage.addListener((m) => {
+    if (m.jobId && m.jobId !== jobId) return;
+    ytForward(tabId, { ...m, jobId });
+    if (m.type === "started") patchJob({ message: "Downloading…" });
+    else if (m.type === "progress") {
+      patchJob({
+        progress: Math.max(0, Math.min(1, (m.percent || 0) / 100)),
+        message: `Downloading${m.stage > 0 ? " (audio)" : ""}…${m.speed ? ` ${m.speed}` : ""}${m.eta && m.eta !== "Unknown" ? ` · ${m.eta} left` : ""}`,
+      });
+    } else if (m.type === "status") patchJob({ message: m.message });
+    else if (m.type === "done") {
+      patchJob({ status: "done", progress: 1, message: `Saved to ${m.file || "your YouTube folder"}`, ...(m.warning ? { warn: m.warning } : {}) });
+      ytNotify("Download complete", `${job.title}
+${m.file || ""}`);
+      end();
+    } else if (m.type === "error") {
+      patchJob({ status: "error", error: failText(m.error) });
+      ytNotify("Download failed", `${job.title}
+${m.error}`);
+      end();
+    } else if (m.type === "cancelled") {
+      patchJob({ status: "cancelled", message: "Cancelled" });
+      end();
+    }
+  });
+  port.onDisconnect.addListener((p) => {
+    if (!ytJobs.has(jobId)) return;
+    ytJobs.delete(jobId);
+    const e = portError(p) || "The yt-dlp helper stopped unexpectedly.";
+    const notInstalled = NOT_INSTALLED_RE.test(e);
+    patchJob({ status: "error", error: notInstalled ? "The YouTube helper isn't installed on this computer (see the README)." : e });
+    ytForward(tabId, { type: "error", jobId, error: e, notInstalled });
+  });
+  port.postMessage({
+    type: "download", jobId,
+    url: `https://www.youtube.com/watch?v=${id}`,
+    quality,
+    folder: String(folder || ""),
+    filename: String(filename || "").slice(0, 200),
+    ...(cookies ? { cookies } : {}),
+  });
+  return { jobId };
+}
+
 Object.assign(handlers, {
   ytPing: () => ytRequest({ type: "ping" }, "pong", 30000),
   ytPickFolder: ({ initial }) => ytRequest({ type: "pickFolder", initial: String(initial || "") }, "folder", 10 * 60 * 1000),
 
-  async ytStart({ url, quality, folder, filename, title, useSignIn }, sender) {
-    const id = ytVideoId(url);
-    if (!id) return { error: "That isn't a YouTube video page." };
-    if (!YT_QUALITIES.includes(quality)) return { error: "Unknown quality option." };
-    let cookies;
-    if (useSignIn) {
-      cookies = await ytCookieText(sender.tab);
-      if (!cookies) {
-        return { error: "You're not signed in to YouTube in this window. Sign in, reload the page, and try again." };
-      }
-    }
-    const jobId = crypto.randomUUID();
-    const tabId = sender.tab?.id;
-    let port;
-    try {
-      port = chrome.runtime.connectNative(YT_HOST);
-    } catch (err) {
-      return { error: err.message, notInstalled: true };
-    }
-    const job = { port, tabId, title: String(title || "YouTube video").slice(0, 200) };
-    ytJobs.set(jobId, job);
-    const end = () => {
-      ytJobs.delete(jobId);
-      try {
-        port.disconnect();
-      } catch {}
-    };
-    port.onMessage.addListener((m) => {
-      if (m.jobId && m.jobId !== jobId) return;
-      ytForward(tabId, { ...m, jobId });
-      if (m.type === "done") {
-        ytNotify("Download complete", `${job.title}\n${m.file || ""}`);
-        end();
-      } else if (m.type === "error") {
-        ytNotify("Download failed", `${job.title}\n${m.error}`);
-        end();
-      } else if (m.type === "cancelled") end();
-    });
-    port.onDisconnect.addListener((p) => {
-      if (!ytJobs.has(jobId)) return;
-      ytJobs.delete(jobId);
-      const e = portError(p) || "The yt-dlp helper stopped unexpectedly.";
-      ytForward(tabId, { type: "error", jobId, error: e, notInstalled: NOT_INSTALLED_RE.test(e) });
-    });
-    port.postMessage({
-      type: "download", jobId,
-      url: `https://www.youtube.com/watch?v=${id}`,
-      quality,
-      folder: String(folder || ""),
-      filename: String(filename || "").slice(0, 200),
-      ...(cookies ? { cookies } : {}),
-    });
-    return { jobId };
+  // From youtube.js (sender.tab) or from the popup for a YouTube player embedded in
+  // another site (msg.tabId, msg.queue: also listed in the download queue).
+  async ytStart(msg, sender) {
+    const tab = sender.tab || (msg.tabId != null ? await chrome.tabs.get(msg.tabId).catch(() => null) : null);
+    return startYt(msg, tab);
   },
 
   ytCancel: ({ jobId }) => {

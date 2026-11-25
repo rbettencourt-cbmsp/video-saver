@@ -31,7 +31,8 @@ async function schedule() {
     }
     for (const j of jobs) {
       if (running.size >= MAX_PARALLEL) break;
-      if (j.status === "queued" && !running.has(j.id)) start(j);
+      // YouTube jobs run in the background through the yt-dlp helper, not here.
+      if (j.status === "queued" && j.kind !== "youtube" && !running.has(j.id)) start(j);
     }
   } finally {
     scheduling = false;
@@ -188,7 +189,7 @@ addEventListener("beforeunload", (e) => {
 (async () => {
   const jobs = await getJobs();
   for (const j of jobs) {
-    if (["running", "cancelling"].includes(j.status)) {
+    if (["running", "cancelling"].includes(j.status) && j.kind !== "youtube") {
       await update(j.id, j.status === "running"
         ? { status: "queued", message: "", progress: 0 }
         : { status: "cancelled", message: "Cancelled" });

@@ -139,7 +139,7 @@ Tips:
 
 ## YouTube setup (optional)
 
-On YouTube, Video Saver adds a **Download** button under the video. Browsers don't let extensions run programs, so this button hands the job to [yt-dlp](https://github.com/yt-dlp/yt-dlp) on your computer through a small helper. You set this up **once on each computer** (and once per user account). Everything else in Video Saver works without it.
+On YouTube, Video Saver adds a **Download** button under the video. YouTube videos embedded in other sites (for example a course lesson) show up in the Video Saver popup with a quality menu and **Save**, and appear in the download list; they use the same helper and the folder and sign-in choice from the YouTube panel. Browsers don't let extensions run programs, so this button hands the job to [yt-dlp](https://github.com/yt-dlp/yt-dlp) on your computer through a small helper. You set this up **once on each computer** (and once per user account). Everything else in Video Saver works without it.
 
 Do this in the Video Saver folder: the unzipped Chrome package, or for Firefox the unzipped **`video-saver-youtube-helper`** package. Each command below has a copy button. The **?** button under any YouTube video shows the same steps for your system, also with copy buttons.
 

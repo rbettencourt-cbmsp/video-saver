@@ -22,6 +22,40 @@ async function fetchOk(url, as = "text", init = {}) {
   return as === "json" ? res.json() : res.text();
 }
 
+// Some hosts (Skool/Mux) only serve a stream's manifest to requests from the page's own
+// site. If the extension's request is refused, fetch it from inside the page instead.
+async function fetchManifest(url, tab) {
+  try {
+    return await fetchOk(url);
+  } catch (err) {
+    const [r] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      // Try without cookies first: CDNs that allow any site ("*") refuse cookie-carrying requests.
+      func: async (u) => {
+        for (const credentials of ["omit", "include"]) {
+          try {
+            const res = await fetch(u, { credentials });
+            if (res.ok) return await res.text();
+          } catch {}
+        }
+        return null;
+      },
+      args: [url],
+    });
+    if (typeof r?.result !== "string") throw err;
+    return r.result;
+  }
+}
+
+const urlKey = (u) => {
+  try {
+    const x = new URL(u);
+    return x.origin + x.pathname;
+  } catch {
+    return u;
+  }
+};
+
 // --- Collect -------------------------------------------------------------------
 
 async function collect(tab) {
@@ -50,11 +84,22 @@ async function collect(tab) {
     // chrome:// pages, the Web Store, etc. can't be scripted; network results still apply.
   }
 
-  const items = [...found.values()];
-  await Promise.all(items.map((i) => classify(i).catch(() => Object.assign(i, { label: "Video", rank: 3 }))));
+  let items = [...found.values()];
+  await Promise.all(items.map((i) => classify(i, tab).catch(() => Object.assign(i, { label: "Video", rank: 3 }))));
+  // A full stream lists its own video and audio tracks; once it's found, don't list those
+  // tracks separately (saving one gives video without sound, or sound only).
+  const parts = new Set(items.flatMap((i) => i.parts || []));
+  items = items.filter((i) => !i.url || !parts.has(urlKey(i.url)));
   return items.sort((a, b) => a.rank - b.rank || (b.seen || 0) - (a.seen || 0));
 }
 
+const YT_QUALITIES = [
+  { yt: "best", text: "Best" },
+  { yt: "1080", text: "1080p" },
+  { yt: "720", text: "720p" },
+  { yt: "480", text: "480p" },
+  { yt: "audio", text: "MP3" },
+];
 const PREVIEW_RE = /thumbnail|preview|poster|sprite|storyboard/i;
 const PLAYER_NAMES = { wistia: "Wistia player", vimeo: "Vimeo player", loom: "Loom player" };
 const heightOf = (res) => Number(String(res || "").split("x")[1]) || 0;
@@ -69,13 +114,10 @@ function qualitiesFromHls(text, url) {
 
 // Sets item.label, item.rank (0 best … 5 can't save) and item.qualities.
 // Ranks: 0 full stream/player, 1 file, 2 single track, 3 unknown, 4 preview clip, 5 unsupported.
-async function classify(item) {
+async function classify(item, tab) {
   if (item.type === "youtube") {
-    Object.assign(item, {
-      title: "YouTube player",
-      label: "Use the Download button under the video on youtube.com (needs the yt-dlp helper)",
-      rank: 5,
-    });
+    // Saved by the yt-dlp helper (see README: "YouTube downloads").
+    Object.assign(item, { title: "YouTube player", label: "Full video (YouTube helper)", rank: 0, qualities: YT_QUALITIES });
     return;
   }
 
@@ -89,6 +131,7 @@ async function classify(item) {
       } else {
         const r = await resolvers.resolveEmbed(item, fetchOk);
         if (r.kind === "hls") item.qualities = qualitiesFromHls(await fetchOk(r.url), r.url);
+        else if (r.kind === "dash") item.qualities = parseMpd(await fetchOk(r.url), r.url).qualities;
       }
       item.label = "Full video (recommended)";
     } catch {
@@ -109,7 +152,7 @@ async function classify(item) {
 
   let text;
   try {
-    text = await fetchOk(item.url);
+    text = await fetchManifest(item.url, tab);
   } catch {
     Object.assign(item, { label: `Stream (${item.type.toUpperCase()})`, rank: 3 });
     return;
@@ -133,8 +176,13 @@ async function classify(item) {
     Object.assign(item, { label: "Encrypted (can’t save)", rank: 5 });
   } else if (/#EXT-X-STREAM-INF/.test(text)) {
     Object.assign(item, { label: "Full stream (recommended)", rank: 0, qualities: qualitiesFromHls(text, item.url) });
+    try {
+      const pl = parsePlaylist(text, item.url);
+      item.parts = [...pl.variants.map((v) => v.uri), ...pl.audio.map((a) => a.uri)].map(urlKey);
+    } catch {}
   } else {
-    const hint = /audio/i.test(item.url) ? "audio only" : /video/i.test(item.url) ? "video only" : "single track";
+    const hint = /audio/i.test(item.url) || /#EXT-X-MAP:URI="[^"]*audio/i.test(text) ? "audio only"
+      : /video/i.test(item.url) ? "video only" : "single track";
     Object.assign(item, { label: `Stream (${hint})`, rank: 2 });
   }
 }
@@ -142,12 +190,37 @@ async function classify(item) {
 // --- Render --------------------------------------------------------------------
 
 function qualityLabel(q) {
+  if (q.text) return q.text;
   if (q.height) return `${q.height}p`;
   if (q.bandwidth) return `${Math.round(q.bandwidth / 1000)} kbps`;
   return "Auto";
 }
 
+async function saveYouTube(item, tab, quality, btn) {
+  btn.disabled = true;
+  const { ytFolder, ytUseSignIn } = await chrome.storage.local.get(["ytFolder", "ytUseSignIn"]);
+  const res = await send({
+    type: "ytStart",
+    queue: true,
+    tabId: tab.id,
+    url: `https://www.youtube.com/watch?v=${item.embedId}`,
+    quality: quality?.yt || "best",
+    folder: ytFolder || "",
+    filename: safeFilename(tab.title, ""),
+    title: tab.title || "YouTube video",
+    useSignIn: ytUseSignIn === true,
+    pageUrl: tab.url,
+  });
+  btn.textContent = res?.error ? "Failed" : "Added ✓";
+  if (res?.error) btn.title = res.notInstalled ? "The YouTube helper isn't installed on this computer (see the README)." : res.error;
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = "Save";
+  }, 2000);
+}
+
 async function save(item, tab, quality, btn) {
+  if (item.type === "youtube") return saveYouTube(item, tab, quality, btn);
   const job = {
     kind: item.type === "embed" ? item.kind : item.type,
     url: item.url,
@@ -169,23 +242,20 @@ async function save(item, tab, quality, btn) {
 
 function render(allItems, tab) {
   listEl.replaceChildren();
-  // YouTube players are saved with the Download button on youtube.com, not from here:
-  // show one short notice instead of an entry per player.
-  const youtube = allItems.filter((i) => i.type === "youtube");
-  const items = allItems.filter((i) => i.type !== "youtube");
+  // On youtube.com the Download panel under the video does this job; elsewhere,
+  // embedded YouTube players are listed and saved through the yt-dlp helper.
+  const onYouTube = /(^|\.)youtube\.com$/.test(new URL(tab.url || "about:blank").hostname || "");
+  const items = onYouTube ? allItems.filter((i) => i.type !== "youtube") : allItems;
   const usable = items.filter((i) => i.rank < 5).length;
 
-  if (youtube.length) {
+  if (onYouTube && items.length < allItems.length) {
     const note = document.createElement("li");
     note.className = "notice";
-    const onYouTube = /(^|\.)youtube\.com$/.test(new URL(tab.url || "about:blank").hostname || "");
-    note.textContent = onYouTube
-      ? "YouTube video: use the Download button under the video."
-      : `YouTube video${youtube.length > 1 ? "s" : ""} on this page: open ${youtube.length > 1 ? "them" : "it"} on youtube.com and use the Download button under the video.`;
+    note.textContent = "YouTube video: use the Download button under the video.";
     listEl.append(note);
   }
   if (!items.length) {
-    statusEl.textContent = youtube.length ? "" : "No videos found yet. Play the video, then click Rescan.";
+    statusEl.textContent = onYouTube ? "" : "No videos found yet. Play the video, then click Rescan.";
     statusEl.hidden = !statusEl.textContent;
     return;
   }

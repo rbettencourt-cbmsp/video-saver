@@ -39,7 +39,8 @@ The same source runs in both browsers. `npm run build:firefox` copies it to `dis
 ## Finding videos
 
 - **Network:** `background.js` checks every response in each tab, including player iframes. A response counts as media by its URL ending (`.m3u8`, `.mpd`, `.mp4`, `.webm`, `.mov`, `.m4v`) or its `Content-Type` (HLS/DASH manifests). Stream segments are ignored. The frame's URL is kept as the Referer to use later
-- **Page:** `detect.js` looks at `<video>` elements, iframe URLs, Wistia's `wistia_async_*` classes and `<wistia-player>`, links, and JSON page data such as Next.js `__NEXT_DATA__` (where Skool keeps lesson video links). This finds players before playback starts
+- **Page:** `detect.js` looks at `<video>` elements, iframe URLs, Wistia's `wistia_async_*` classes and `<wistia-player>`, links, and JSON page data such as Next.js `__NEXT_DATA__` (where Skool keeps lesson video links). This finds players before playback starts. Course sites keep every lesson's link in page data, so when the URL names a lesson (`?md=<id>`) only that lesson's entry is read, and otherwise page data is read only if the page shows no player of its own
+- **Embedded YouTube:** the popup saves it through the YouTube helper (`ytStart` with `queue: true`). `background.js` lists it in the download queue as a `youtube` job and updates it from the helper's events; the Downloads tab doesn't run those jobs
 - **Labelling:** the popup reads each manifest to label full streams, single tracks, preview clips and DRM/encrypted streams, and to list the available qualities
 
 ## Formats
