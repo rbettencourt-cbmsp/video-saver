@@ -22,7 +22,12 @@ export async function runJob(job, { signal, report }) {
     if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
   };
   const ruleIds = new Set();
-  const say = (message, progress) => report({ message, ...(progress != null ? { progress } : {}) });
+  const t0 = performance.now();
+  const say = (message, progress) => {
+    // Step log for the Downloads tab's console (F12), to see where time goes.
+    if (message && !/^Downloading/.test(message)) console.info(`[Video Saver] ${job.name}: ${message} (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
+    report({ message, ...(progress != null ? { progress } : {}) });
+  };
   let bytes = 0;
   const countBytes = (n) => report({ bytes: (bytes += n) });
 
@@ -150,7 +155,9 @@ export async function runJob(job, { signal, report }) {
     return { file: await writer.file(), segs, initSize, ext: track.ext };
   }
 
-  async function downloadWholeFile(url) {
+  // `ext` names the scratch file (file.mp4), so the saved download gets the right type;
+  // without it Chrome may save the video as .txt.
+  async function downloadWholeFile(url, ext) {
     await ensureReferer(url);
     const res = await fetch(url, { credentials: "include", signal });
     if (!res.ok) {
@@ -158,7 +165,7 @@ export async function runJob(job, { signal, report }) {
       throw new Error(`Failed to fetch ${url.split("?")[0]}: HTTP ${res.status}${hint}`);
     }
     const total = Number(res.headers.get("content-length")) || 0;
-    const writer = await scratchFile("file");
+    const writer = await scratchFile(`file.${ext}`);
     const reader = res.body.getReader();
     try {
       for (;;) {
@@ -200,9 +207,10 @@ export async function runJob(job, { signal, report }) {
 
     // 2. Plain file: stream it to disk and save.
     if (kind === "file") {
-      const file = await downloadWholeFile(url);
+      const fileExt = ext || extFromUrl(url);
+      const file = await downloadWholeFile(url, fileExt);
       say("Saving…", 0.99);
-      return await save(file, `${base}.${ext || extFromUrl(url)}`);
+      return await save(file, `${base}.${fileExt}`);
     }
 
     // 3. Stream: read manifest(s) and pick the quality.

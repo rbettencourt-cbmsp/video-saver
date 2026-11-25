@@ -137,7 +137,8 @@ low.m3u8
 
 function report(result) {
   say(`RESULT: ${result}`);
-  parent.postMessage({ scenario, result, detail: out.textContent }, "*");
+  const storage = new URLSearchParams(location.search).get("storage");
+  parent.postMessage({ scenario: storage ? `${scenario} (${storage} storage)` : scenario, result, detail: out.textContent }, "*");
 }
 
 const sc = SCENARIOS[scenario];
@@ -224,6 +225,11 @@ try {
     const d = await (await navigator.storage.getDirectory()).getDirectoryHandle("video-saver-jobs", { create: true });
     for await (const n of d.keys()) if (n.startsWith(`test-${scenario}`)) await d.removeEntry(n).catch(() => {});
   }
+  // ?storage=broken: the browser's file storage never answers, like a damaged profile.
+  // The job must fall back to memory and still save the video.
+  const brokenStorage = new URLSearchParams(location.search).get("storage") === "broken";
+  const realGetDirectory = navigator.storage.getDirectory;
+  if (brokenStorage) navigator.storage.getDirectory = () => new Promise(() => {});
   const { runJob } = await import("../job.js");
   const job = { id: `test-${scenario}`, kind: sc.kind, url: sc.entry ? BASE + sc.entry + SIG : undefined,
                 embedId: sc.embedId, name: `Test ${scenario}`, referrer: REFERRER, ...(sc.job || {}) };
@@ -233,6 +239,10 @@ try {
     await runJob(job, { signal: controller.signal, report: (p) => reports.push(p) });
   } catch (e) {
     error = e;
+  }
+  if (brokenStorage) {
+    navigator.storage.getDirectory = realGetDirectory;
+    say(`scratch storage used: ${(await import("../store.js")).scratchMode()}`);
   }
   const messages = reports.map((r) => r.message).filter(Boolean);
   const label = reports.map((r) => r.qualityLabel).filter(Boolean).at(-1) || "";

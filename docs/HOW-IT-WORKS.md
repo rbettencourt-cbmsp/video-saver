@@ -164,7 +164,7 @@ Browser tests run the real download code against streams generated with ffmpeg.w
 python -m http.server 8765
 ```
 
-Then open `http://127.0.0.1:8765/test/run.html`. It should end with `DONE PASS: 16`.
+Then open `http://127.0.0.1:8765/test/run.html`. It should end with `DONE PASS: 18`.
 
 Visual previews, served the same way:
 

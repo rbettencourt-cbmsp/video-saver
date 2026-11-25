@@ -1,7 +1,7 @@
 // Downloads tab: runs queued jobs (up to MAX_PARALLEL at once) and shows the queue.
 // The job list lives in chrome.storage.session; all changes go through background.js.
 import { runJob } from "./job.js";
-import { clearScratch } from "./store.js";
+import { clearScratch, isStorageError, scratchMode, useMemoryScratch } from "./store.js";
 
 const MAX_PARALLEL = 3;
 const running = new Map(); // id -> { controller, bytes, lastBytes, lastTime }
@@ -17,7 +17,11 @@ async function getJobs() {
 
 let scheduling = false;
 let again = false;
+// No job may start until start-up has cleared old scratch files; otherwise the clean-up
+// deletes the files of a job that just started ("state had changed since it was read").
+let ready = false;
 async function schedule() {
+  if (!ready) return;
   if (scheduling) {
     again = true;
     return;
@@ -44,6 +48,7 @@ async function schedule() {
 }
 
 function start(job) {
+  console.info(`[Video Saver] starting ${job.name} (${job.kind})`);
   const controller = new AbortController();
   const state = { controller, bytes: 0, lastBytes: 0, lastTime: performance.now(), pending: {}, timer: null };
   running.set(job.id, state);
@@ -65,13 +70,23 @@ function start(job) {
   };
 
   update(job.id, { status: "running", message: "Starting…", progress: 0, error: "", warn: "" });
-  runJob(job, { signal: controller.signal, report })
+  // If the browser's file storage fails mid-job, switch to memory and run it once more.
+  const run = () =>
+    runJob(job, { signal: controller.signal, report }).catch((err) => {
+      if (controller.signal.aborted || !isStorageError(err) || scratchMode() === "memory") throw err;
+      console.error(`[Video Saver] ${job.name}: browser file storage failed, retrying in memory:`, err);
+      useMemoryScratch(err.message);
+      report({ message: "Browser storage failed; retrying in memory…", progress: 0 });
+      return runJob(job, { signal: controller.signal, report });
+    });
+  run()
     .then(async ({ downloadId, filename }) => {
       clearTimeout(state.timer);
       flush();
       await update(job.id, { status: "done", progress: 1, speed: 0, message: `Saved to ${filename}`, downloadId });
     })
     .catch(async (err) => {
+      console.error(`[Video Saver] ${job.name} failed:`, err);
       clearTimeout(state.timer);
       flush();
       const cancelled = err.name === "AbortError" || controller.signal.aborted;
@@ -185,6 +200,10 @@ addEventListener("beforeunload", (e) => {
   if (running.size) e.preventDefault();
 });
 
+// Chrome's Memory Saver unloads background tabs that use a lot of memory, which stops
+// every download in this one. Ask Chrome to keep it loaded.
+chrome.tabs.getCurrent().then((t) => t && chrome.tabs.update(t.id, { autoDiscardable: false })).catch(() => {});
+
 // Start-up: jobs marked running belong to a closed tab; put them back in line.
 (async () => {
   const jobs = await getJobs();
@@ -195,7 +214,10 @@ addEventListener("beforeunload", (e) => {
         : { status: "cancelled", message: "Cancelled" });
     }
   }
+  const t = performance.now();
   await clearScratch();
+  console.info(`[Video Saver] start-up clean-up took ${Math.round(performance.now() - t)} ms`);
+  ready = true;
   render(await getJobs());
   schedule();
 })();

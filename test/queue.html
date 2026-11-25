@@ -2,8 +2,10 @@
 <meta charset="utf-8">
 <title>queue test</title>
 <!-- Loads the real downloads.js with job.js swapped for test/fake-job.js and chrome.* stubbed.
-     Checks: at most 3 jobs run at once, all jobs finish, failures and cancellation are recorded. -->
-<script type="importmap">{ "imports": { "/job.js": "/test/fake-job.js" } }</script>
+     Checks: at most 3 jobs run at once, all jobs finish, failures and cancellation are recorded,
+     and no job starts before start-up has cleared old scratch files (a job left "running"
+     by an unloaded tab makes start-up change the list, which used to start jobs early). -->
+<script type="importmap">{ "imports": { "/job.js": "/test/fake-job.js", "/store.js": "/test/fake-store.js" } }</script>
 <span id="summary"></span><button id="clear">Clear</button><ul id="list"></ul>
 <pre id="out"></pre>
 <script>
@@ -36,9 +38,10 @@
     },
     runtime: { sendMessage: async (m) => handlers[m.type]?.(m) },
     downloads: { show() {} },
+    tabs: { getCurrent: async () => ({ id: 1 }), update: async () => {} },
   };
   const names = ["a", "b", "fails", "d", "e", "cancel-me", "g"];
-  store.jobs = names.map((n, i) => ({ id: `j${i}`, name: n, status: "queued", url: "x", kind: "hls" }));
+  store.jobs = names.map((n, i) => ({ id: `j${i}`, name: n, status: i === 0 ? "running" : "queued", url: "x", kind: "hls" }));
 </script>
 <script type="module">
   const out = document.getElementById("out");
@@ -59,9 +62,11 @@
   }
   const q = globalThis.__queueTest;
   const status = Object.fromEntries(store.jobs.map((j) => [j.name, j.status]));
-  out.textContent = `max running at once: ${q.maxActive}\nstatuses: ${JSON.stringify(status)}\n` +
+  const early = (q.startTimes || []).filter((t) => !(t > q.clearedAt)).length;
+  out.textContent = `jobs started before clean-up finished: ${early}
+` + `max running at once: ${q.maxActive}\nstatuses: ${JSON.stringify(status)}\n` +
     `error text: ${store.jobs.find((j) => j.name === "fails").error}\nrendered rows: ${document.querySelectorAll("#list li").length}\n`;
-  const ok = q.maxActive === 3 && status["fails"] === "error" && status["cancel-me"] === "cancelled" &&
+  const ok = early === 0 && q.maxActive === 3 && status["fails"] === "error" && status["cancel-me"] === "cancelled" &&
     names.filter((n) => !["fails", "cancel-me"].includes(n)).every((n) => status[n] === "done") &&
     document.querySelectorAll("#list li").length === names.length;
   const result = ok ? "PASS" : "FAIL";

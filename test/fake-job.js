@@ -7,6 +7,7 @@ export async function runJob(job, { signal, report }) {
   q.active++;
   q.maxActive = Math.max(q.maxActive, q.active);
   q.started.push(job.id);
+  (q.startTimes ||= []).push(performance.now());
   try {
     for (let i = 1; i <= 5; i++) {
       await new Promise((r) => setTimeout(r, 80));

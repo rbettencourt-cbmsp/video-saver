@@ -12,6 +12,8 @@ const JOB_SCENARIOS = ["hls-master", "hls-chunked", "hls-quality", "hls-byterang
   "dash-quality", "dash-seglist", "dash-baseurl", "file-referrer", "wistia-embed", "dash-drm", "cancel"];
 const PAGES = [
   ...JOB_SCENARIOS.map((s) => ({ name: s, src: `job.html?scenario=${s}` })),
+  // Damaged browser file storage: downloads fall back to memory.
+  ...["hls-master", "file-referrer"].map((s) => ({ name: `${s} (broken storage)`, src: `job.html?scenario=${s}&storage=broken` })),
   { name: "chunks", src: "chunks.html" },
   { name: "detect", src: "detect.html" },
   { name: "queue", src: "queue.html" },
