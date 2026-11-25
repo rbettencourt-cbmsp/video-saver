@@ -90,6 +90,13 @@ async function collect(tab) {
   // tracks separately (saving one gives video without sound, or sound only).
   const parts = new Set(items.flatMap((i) => i.parts || []));
   items = items.filter((i) => !i.url || !parts.has(urlKey(i.url)));
+  // Only call a stream "video only" when a separate audio stream is on the page too;
+  // otherwise it's most likely the whole video with sound (e.g. Fathom's video.m3u8).
+  const separateAudio = items.some((i) => i.track === "audio");
+  for (const i of items) {
+    if (i.track === "audio") Object.assign(i, { label: "Stream (audio only)", rank: 2 });
+    else if (i.track === "video" && separateAudio) Object.assign(i, { label: "Stream (video only)", rank: 2 });
+  }
   return items.sort((a, b) => a.rank - b.rank || (b.seen || 0) - (a.seen || 0));
 }
 
@@ -181,9 +188,11 @@ async function classify(item, tab) {
       item.parts = [...pl.variants.map((v) => v.uri), ...pl.audio.map((a) => a.uri)].map(urlKey);
     } catch {}
   } else {
-    const hint = /audio/i.test(item.url) || /#EXT-X-MAP:URI="[^"]*audio/i.test(text) ? "audio only"
-      : /video/i.test(item.url) ? "video only" : "single track";
-    Object.assign(item, { label: `Stream (${hint})`, rank: 2 });
+    // A stream without a quality list: either the whole video, or one track of a stream
+    // that sends picture and sound separately. The link name is only a hint; collect()
+    // settles the label once it has seen every stream on the page.
+    item.track = /audio/i.test(item.url) || /#EXT-X-MAP:URI="[^"]*audio/i.test(text) ? "audio" : /video/i.test(item.url) ? "video" : "";
+    Object.assign(item, { label: "Stream", rank: 1 });
   }
 }
 
