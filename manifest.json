@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Video Saver",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Find videos on the current page and save them for offline viewing.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3vaMaDBGBBppuXTdhw7TO5TWGB2CDj90XkQAVmRf4lBz+VXFPNJbyLc0MNHrfyF1Sjer6llb1czP/gyZ2UR1M72eIyTHA+0wySZsUyBtQJJQ5g8CxwZqwBDurhxAg/XwEUgkgWhmDf0u0ndAWzS1i3DKTOJRCdJEiaoVVzas9An/QF+j4N9wn0KSC5oMM1GE5iWAySuiKfEt8IC15WRIEBU0+GEc4yOP4u/qifTeLeTGZGYj5N9o00uWVPrOeaPhkGjYo1eUMkZilCrf/fWvyBcCGNOhQOg6k7M61Rvzbu16AEhEY7qqpQFmS+v275HV5ywTjCU9+CUJLshtldLzlwIDAQAB",
   "permissions": [
